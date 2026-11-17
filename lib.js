@@ -111,7 +111,11 @@
     // "Titel : Untertitel / Autor" -> Titel, Untertitel
     const beforeSlash = rawTitle.split(' / ')[0];
     const [title, ...sub] = beforeSlash.split(' : ');
-    const creators = all('creator').map(flipName);
+    // Nur Verfasser übernehmen; Übersetzer, Illustratoren, Herausgeber usw. weglassen
+    const rawCreators = all('creator');
+    const isAuthor = (c) => { const m = c.match(/\[([^\]]*)\]/); return !m || /verfasser|autor|author/i.test(m[1]); };
+    const authorsOnly = rawCreators.filter(isAuthor);
+    const creators = (authorsOnly.length ? authorsOnly : rawCreators.slice(0, 1)).map(flipName);
     return {
       title: title.trim(),
       subtitle: sub.join(': ').trim(),

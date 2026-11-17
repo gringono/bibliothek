@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const L = window.BibLib;
-  const APP_VERSION = '0.2.2';
+  const APP_VERSION = '0.2.3';
   const $app = document.getElementById('app');
 
   const THEMES = { leseecke: 'Leseecke', roman: 'Romane', krimi: 'Krimi', thriller: 'Thriller', horror: 'Horror', fantasy: 'Fantasy', romantasy: 'Romantasy', scifi: 'Science-Fiction' };
@@ -167,6 +167,9 @@
     S.shelves = (await DB.all('shelves')).sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true }));
     S.books = await DB.all('books');
     S.series = (await DB.all('series')).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+    for (const sr of S.series) {
+      if (sr.author && sr.author.split(',').length > 2) { sr.author = sr.author.split(',')[0].trim(); await DB.put('series', sr); }
+    }
   }
 
   async function saveBook(b) {
@@ -220,7 +223,7 @@
     name = String(name || '').trim();
     if (!name) return;
     let sr = seriesByName(name);
-    if (!sr) sr = await saveSeries({ id: uid() + uid(), name, author: authorStr(b), total: null, createdAt: now() });
+    if (!sr) sr = await saveSeries({ id: uid() + uid(), name, author: (b.authors || [])[0] || '', total: null, createdAt: now() });
     b.seriesId = sr.id;
     b.volume = volume != null && !isNaN(volume) ? volume : null;
     b.seriesHint = null;
@@ -676,6 +679,7 @@
     if (bsr) {
       html += '<div class="row"><div class="grow"><div class="muted small" style="font-weight:700">Reihe</div><a href="#/reihe/' + esc(bsr.id) + '" style="font-weight:700">' + esc(bsr.name) + '</a></div>' +
         '<label class="field" style="width:96px">Band<input class="input" id="vol" type="number" inputmode="decimal" step="0.5" min="0" value="' + (b.volume != null ? b.volume : '') + '"></label></div>' +
+        (!bsr.total ? '<form class="row" id="sertotal" style="margin-top:10px;align-items:flex-end"><label class="field grow">Wie viele Bände hat die Reihe?<input class="input" name="total" type="number" inputmode="numeric" min="1" max="200" placeholder="z. B. 3"></label><button class="btn small" type="submit" style="margin-bottom:5px">OK</button></form>' : '') +
         '<button class="linkbtn small" data-act="unseries" style="padding:0;min-height:36px">aus der Reihe entfernen</button>';
     } else if (b.seriesHint) {
       html += '<p style="margin:0 0 10px">Gehört zur Reihe <b>„' + esc(b.seriesHint.name) + '“</b>, Band ' + fmtVol(b.seriesHint.volume) + '?</p>' +
@@ -755,6 +759,15 @@
     on('[data-act="unseries"]', 'click', () => upd({ seriesId: null, volume: null, seriesHintDone: true }));
     on('[data-act="takehint"]', 'click', async () => { await assignSeries(b, b.seriesHint.name, b.seriesHint.volume); toast('Zur Reihe hinzugefügt'); viewBook(id); });
     on('[data-act="nohint"]', 'click', () => upd({ seriesHint: null, seriesHintDone: true }));
+    const stf = qs('#sertotal');
+    if (stf) stf.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const n = parseInt(stf.total.value, 10);
+      if (!n || !bsr) return;
+      bsr.total = n; await saveSeries(bsr);
+      toast('Reihe hat ' + n + ' Bände');
+      viewBook(id);
+    });
     const sf = qs('#serform');
     if (sf) sf.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -1151,10 +1164,22 @@
       return '<li class="card series-row"><a class="series-title" href="#/reihe/' + esc(sr.id) + '">' +
         (sr.author ? '<span class="muted">' + esc(sr.author) + ' – </span>' : '') + '<b>' + esc(sr.name) + '</b>' +
         ' <span class="muted small">(' + (info.totalKnown ? info.total : 'mind. ' + info.total) + ' ' + (info.total === 1 ? 'Band' : 'Bände') + ')</span></a>' +
-        '<div class="vols">' + chips + (info.noVolume.length ? '<span class="muted small">+ ' + info.noVolume.length + ' ohne Bandnr.</span>' : '') + '</div></li>';
+        '<div class="vols">' + chips + (info.noVolume.length ? '<span class="muted small">+ ' + info.noVolume.length + ' ohne Bandnr.</span>' : '') + '</div>' +
+        (!info.totalKnown ? '<form class="row total-form" data-sid="' + esc(sr.id) + '" style="margin-top:10px;gap:8px"><label class="muted small grow" for="t-' + esc(sr.id) + '">Wie viele Bände hat die Reihe?</label>' +
+          '<input class="input" id="t-' + esc(sr.id) + '" name="total" type="number" inputmode="numeric" min="1" max="200" style="width:72px;min-height:36px;padding:4px 8px">' +
+          '<button class="btn small" type="submit">OK</button></form>' : '') + '</li>';
     }).join('') + '</ol>';
-    html += '<a class="btn ghost block" href="#/reihe/neu" style="margin-top:14px">+ Reihe anlegen</a>';
+    html += '<a class="btn ghost block" href="#/reihe/neu" style="margin-top:14px">+ Reihe von Hand anlegen</a>' +
+      '<p class="muted small" style="text-align:center">Für Reihen, von denen noch kein Band im Regal steht.</p>';
     $app.innerHTML = html;
+    qsa('.total-form').forEach((f) => f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const n = parseInt(f.total.value, 10);
+      const sr = seriesById(f.dataset.sid);
+      if (!n || !sr) return;
+      sr.total = n; await saveSeries(sr);
+      refresh();
+    }));
     on('[data-take]', 'click', async (e) => {
       const n = hintNames[+e.currentTarget.dataset.take];
       for (const b of hints[n]) await assignSeries(b, n, b.seriesHint.volume);
