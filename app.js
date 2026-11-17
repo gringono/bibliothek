@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const L = window.BibLib;
-  const APP_VERSION = '0.2.3';
+  const APP_VERSION = '0.2.4';
   const $app = document.getElementById('app');
 
   const THEMES = { leseecke: 'Leseecke', roman: 'Romane', krimi: 'Krimi', thriller: 'Thriller', horror: 'Horror', fantasy: 'Fantasy', romantasy: 'Romantasy', scifi: 'Science-Fiction' };
@@ -120,7 +120,7 @@
     setTimeout(refresh, 450);
     toast('„' + (b.title || 'Buch') + '“ gelöscht', 5000, {
       label: 'Rückgängig',
-      fn: async () => { await saveBook(copy); refresh(); }
+      fn: async () => { await restoreBook(copy); refresh(); }
     });
   }
 
@@ -231,9 +231,29 @@
     return sr;
   }
 
+  /** Lücke schließen: nachfolgende Bücher im selben Fach rücken auf. */
+  async function closeGap(shelfId, fach, pos, exceptId) {
+    if (!shelfId || !pos) return;
+    for (const x of S.books.filter((x) => x.id !== exceptId && x.shelfId === shelfId && (x.fach || 0) === (fach || 0) && x.pos > pos)) { x.pos -= 1; await saveBook(x); }
+  }
+  /** Platz freimachen: Bücher ab pos rücken eins nach hinten. */
+  async function openGap(shelfId, fach, pos, exceptId) {
+    if (!shelfId || !pos) return;
+    if (!S.books.some((x) => x.id !== exceptId && x.shelfId === shelfId && (x.fach || 0) === (fach || 0) && x.pos === pos)) return;
+    for (const x of S.books.filter((x) => x.id !== exceptId && x.shelfId === shelfId && (x.fach || 0) === (fach || 0) && x.pos >= pos)) { x.pos += 1; await saveBook(x); }
+  }
+
   async function deleteBook(id) {
+    const b = bookById(id);
     await DB.del('books', id);
-    S.books = S.books.filter((b) => b.id !== id);
+    S.books = S.books.filter((x) => x.id !== id);
+    if (b) await closeGap(b.shelfId, b.fach, b.pos);
+  }
+
+  /** Gelöschtes Buch wiederherstellen, am alten Platz. */
+  async function restoreBook(copy) {
+    await openGap(copy.shelfId, copy.fach, copy.pos, copy.id);
+    await saveBook(copy);
   }
 
   function nextPos(shelfId, fach) {
@@ -734,8 +754,8 @@
     });
     on('#finished', 'change', (e) => upd({ finishedAt: e.currentTarget.value || '' }, false));
     on('[data-rate]', 'click', (e) => { const r = +e.currentTarget.dataset.rate; upd({ rating: b.rating === r ? 0 : r }); });
-    on('#mv-shelf', 'change', (e) => { const sid = e.currentTarget.value; upd({ shelfId: sid, fach: 0, pos: sid ? nextPos(sid, 0) : null }); });
-    on('#mv-fach', 'change', (e) => { const f = +e.currentTarget.value; upd({ fach: f, pos: b.shelfId ? nextPos(b.shelfId, f) : null }); });
+    on('#mv-shelf', 'change', async (e) => { const sid = e.currentTarget.value; const old = [b.shelfId, b.fach, b.pos]; await closeGap(old[0], old[1], old[2], b.id); upd({ shelfId: sid, fach: 0, pos: sid ? nextPos(sid, 0) : null }); });
+    on('#mv-fach', 'change', async (e) => { const f = +e.currentTarget.value; const old = [b.shelfId, b.fach, b.pos]; await closeGap(old[0], old[1], old[2], b.id); upd({ fach: f, pos: b.shelfId ? nextPos(b.shelfId, f) : null }); });
     on('#mv-pos', 'change', (e) => upd({ pos: parseInt(e.currentTarget.value, 10) || null }, false));
     on('[data-copies]', 'click', (e) => { const c = Math.max(1, (b.copies || 1) + +e.currentTarget.dataset.copies); upd({ copies: c }); });
     on('#notes', 'change', (e) => upd({ notes: e.currentTarget.value }, false));
@@ -920,29 +940,18 @@
     setTab('scan');
     const find = mode === 'finden';
     const sc = S.scan = S.scan && S.scan.mode === mode ? S.scan : { mode, shelfId: '', fach: 0, log: [], running: false };
-    if (shelfId) sc.shelfId = shelfId;
-    if (!find && !sc.shelfId && S.shelves.length === 1) sc.shelfId = S.shelves[0].id;
+    if (shelfId) { sc.shelfId = shelfId; sc.fach = 0; }
+    if (!find && !sc.shelfId && S.shelves.length) sc.shelfId = S.shelves[0].id;
     const shelf = shelfById(sc.shelfId);
     setTheme(shelf && !find ? shelf.theme : 'leseecke');
 
-    let html = head({ back: shelf && !find ? '#/regal/' + shelf.id : '#/', backLabel: shelf && !find ? shelf.name : 'Bibliothek', title: find ? 'Nachschlagen' : 'Bücher erfassen' });
+    let html = head({ back: '#/', backLabel: 'Bibliothek', title: find ? 'Nachschlagen' : 'Bücher erfassen' });
     if (!find && !S.shelves.length) {
       $app.innerHTML = html + '<div class="card empty"><p>Lege zuerst ein Regal an.</p><a class="btn" href="#/regal/neu">Regal anlegen</a></div>';
       return;
     }
-    if (!find) {
-      html += '<div class="card" style="padding:12px 16px;margin-bottom:12px"><label class="field">Ziel-Regal (oder Regal-QR scannen)<select class="input" id="sc-shelf"><option value="">– Regal wählen –</option>' +
-        S.shelves.map((x) => '<option value="' + esc(x.id) + '"' + (x.id === sc.shelfId ? ' selected' : '') + '>' + esc(x.name + (x.room ? ' · ' + x.room : '')) + '</option>').join('') + '</select></label>';
-      if (shelf && shelf.fachCount > 0) {
-        html += '<div class="chips" role="group" aria-label="Fach" style="margin-top:10px">' + ['ohne Fach'].concat(Array.from({ length: shelf.fachCount }, (_, i) => 'Fach ' + (i + 1)))
-          .map((l, i) => '<button type="button" class="chip" data-scfach="' + i + '" aria-pressed="' + (sc.fach === i) + '">' + l + '</button>').join('') + '</div>';
-      }
-      if (shelf && !shelf.fachCount) html += '<p class="muted small" style="margin:8px 0 0">Ohne Fächer. <a href="#/regal/' + esc(shelf.id) + '/bearbeiten">Fächer einrichten</a></p>';
-      if (shelf) html += '<p class="muted small" style="margin:8px 0 0" id="nextpos">Nächstes Buch: Platz ' + nextPos(shelf.id, sc.fach) + ' – immer am selben Ende anfangen.</p>';
-      html += '</div>';
-    } else {
-      html += '<p class="muted" style="margin-top:0">Buch-Barcode scannen: zeigt, ob es schon im Bestand ist. Regal-QR scannen: öffnet das Regal.</p>';
-    }
+    html += find ? '<p class="muted" style="margin-top:0">Buch-Barcode scannen: zeigt, ob es schon im Bestand ist. Regal-QR scannen: öffnet das Regal.</p>'
+      : '<p class="muted" style="margin-top:0">Barcode scannen, danach Reihe und Platz wählen. Ein Regal-QR legt das vorgewählte Regal fest.</p>';
     html += '<div class="scanbox"><video id="video" playsinline muted></video><div class="scanframe" id="frame"></div><div class="scanhint" id="hint">Barcode in den Rahmen halten</div>' +
       '<div class="scanstart" id="startbox"><button class="btn" id="start">Kamera starten</button><span class="small">Beim ersten Mal fragt iOS nach der Kamera-Erlaubnis.</span></div></div>' +
       '<div class="row" style="margin-top:10px"><button class="btn small ghost hidden" id="stop">Kamera stoppen</button><button class="btn small ghost hidden" id="torch">Licht</button></div>' +
@@ -950,13 +959,6 @@
       '<ul class="scanlog" id="log"></ul>';
     $app.innerHTML = html;
     renderLog();
-
-    on('#sc-shelf', 'change', (e) => { sc.shelfId = e.currentTarget.value; sc.fach = 0; Scanner.stop(); viewScan(mode); });
-    on('[data-scfach]', 'click', (e) => {
-      sc.fach = +e.currentTarget.dataset.scfach;
-      qsa('[data-scfach]').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.scfach === sc.fach)));
-      updateNextPos();
-    });
     qs('#start').addEventListener('click', startCamera);
     qs('#stop').addEventListener('click', () => { Scanner.stop(); qs('#startbox').classList.remove('hidden'); qs('#stop').classList.add('hidden'); qs('#torch').classList.add('hidden'); });
     let torchOn = false;
@@ -964,10 +966,115 @@
     qs('#manual').addEventListener('submit', (e) => { e.preventDefault(); initAudio(); const v = qs('#misbn').value; qs('#misbn').value = ''; handleCode(v, true); });
   }
 
-  function updateNextPos() {
-    const el = qs('#nextpos');
+  // ---------- Erfassen-Fenster nach dem Scan ----------
+  let sheet = null;   // aktueller Zustand des Fensters
+
+  function openScanSheet(isbn) {
     const sc = S.scan;
-    if (el && sc && sc.shelfId) el.textContent = 'Nächstes Buch: Platz ' + nextPos(sc.shelfId, sc.fach) + ' – immer am selben Ende anfangen.';
+    const st = sheet = {
+      isbn, data: null, dataDone: false, marc: null, kind: 'single', seriesTouched: false,
+      sname: '', svol: '', stotal: '', shelfId: sc.shelfId || (S.shelves[0] && S.shelves[0].id) || '', fach: sc.fach || 0, pos: null, posTouched: false
+    };
+    st.pos = nextPos(st.shelfId, st.fach);
+    renderSheet();
+    L.lookupIsbn(isbn, { googleKey: S.googleKey }).then(async (r) => {
+      if (sheet !== st) return;
+      st.data = r; st.dataDone = true;
+      if (r.book && !r.book.cover) { try { const c = await findCover(isbn); if (c.url) { r.book.cover = c.url; r.book.sources = (r.book.sources || []).concat(c.source); } } catch (e) { /* optional */ } }
+      if (sheet === st) renderSheet();
+    });
+    L.lookupSeries(isbn).then((m) => {
+      if (sheet !== st) return;
+      st.marc = m;
+      const h = m && m.series[0];
+      if (h && !st.seriesTouched) {
+        st.kind = 'series'; st.sname = h.name; st.svol = String(h.volume);
+        const sr = seriesByName(h.name);
+        st.stotal = sr && sr.total ? String(sr.total) : '';
+      }
+      renderSheet();
+    });
+  }
+
+  function closeSheet() {
+    sheet = null;
+    const el = document.getElementById('sheet');
+    if (el) el.remove();
+  }
+
+  function renderSheet() {
+    const st = sheet;
+    if (!st) return;
+    let el = document.getElementById('sheet');
+    if (!el) { el = document.createElement('div'); el.id = 'sheet'; document.body.appendChild(el); }
+    const bk = st.data && st.data.book;
+    const shelf = shelfById(st.shelfId);
+    const sr = st.sname ? seriesByName(st.sname) : null;
+    const fake = Object.assign({ title: bk ? bk.title : '', cover: bk ? bk.cover : '' });
+    el.innerHTML = '<div class="sheet-backdrop"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="Buch erfassen">' +
+      '<div class="row" style="align-items:flex-start">' + coverHtml(fake) + '<div class="grow"><div class="book-title">' + esc(bk ? bk.title : 'ISBN ' + L.formatIsbn(st.isbn)) + '</div>' +
+      '<div class="muted small">' + esc(bk ? (authorStr(bk) || '–') : (st.dataDone ? (st.data.offline ? 'offline – Daten werden später geholt' : 'keine Daten gefunden') : 'Daten werden geladen …')) + '</div></div></div>' +
+      '<div class="seg" role="group" aria-label="Art" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:14px">' +
+      '<button type="button" data-kind="single" aria-pressed="' + (st.kind === 'single') + '">Einzelband</button><button type="button" data-kind="series" aria-pressed="' + (st.kind === 'series') + '">Teil einer Reihe</button></div>' +
+      (st.kind === 'series' ? '<div class="form" style="margin-top:12px">' +
+        '<label class="field">Reihe<input class="input" data-f="sname" list="serlist2" value="' + esc(st.sname) + '" placeholder="Name der Reihe" autocomplete="off"></label>' +
+        '<datalist id="serlist2">' + S.series.map((x) => '<option value="' + esc(x.name) + '">').join('') + '</datalist>' +
+        '<div class="row"><label class="field grow">Band<input class="input" data-f="svol" type="number" inputmode="decimal" step="0.5" min="0" value="' + esc(st.svol) + '"></label>' +
+        '<label class="field grow">Bände gesamt<input class="input" data-f="stotal" type="number" inputmode="numeric" min="1" max="200" value="' + esc(st.stotal) + '" placeholder="' + (sr && sr.total ? sr.total : 'z. B. 5') + '"></label></div>' +
+        (sr ? '<p class="muted small" style="margin:0">Reihe vorhanden' + (sr.total ? ', ' + sr.total + ' Bände' : '') + '.</p>' : (st.sname ? '<p class="muted small" style="margin:0">Neue Reihe wird angelegt.</p>' : '')) +
+        '</div>' : '') +
+      '<div class="form" style="margin-top:14px"><label class="field">Regal<select class="input" data-f="shelfId">' +
+        S.shelves.map((x) => '<option value="' + esc(x.id) + '"' + (x.id === st.shelfId ? ' selected' : '') + '>' + esc(x.name + (x.room && x.room !== x.name ? ' · ' + x.room : '')) + '</option>').join('') + '</select></label>' +
+      (shelf && shelf.fachCount ? '<div class="chips" role="group" aria-label="Fach" style="margin:0;padding:0;flex-wrap:wrap">' +
+        Array.from({ length: shelf.fachCount + 1 }, (_, i) => '<button type="button" class="chip" data-sfach="' + i + '" aria-pressed="' + (st.fach === i) + '">' + (i ? 'Fach ' + i : 'ohne Fach') + '</button>').join('') + '</div>' : '') +
+      '<label class="field">Platz (nächster freier: ' + nextPos(st.shelfId, st.fach) + ')<input class="input" data-f="pos" type="number" inputmode="numeric" min="1" value="' + esc(st.pos || '') + '"></label></div>' +
+      '<div class="row" style="margin-top:16px"><button type="button" class="btn ghost" data-sheet="cancel">Verwerfen</button><button type="button" class="btn grow" data-sheet="save">Speichern</button></div></div>';
+    const q = (sel) => el.querySelector(sel);
+    el.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => { st.kind = b.dataset.kind; st.seriesTouched = true; renderSheet(); }));
+    el.querySelectorAll('[data-sfach]').forEach((b) => b.addEventListener('click', () => { st.fach = +b.dataset.sfach; if (!st.posTouched) st.pos = nextPos(st.shelfId, st.fach); renderSheet(); }));
+    el.querySelectorAll('[data-f]').forEach((inp) => inp.addEventListener(inp.tagName === 'SELECT' ? 'change' : 'input', () => {
+      const f = inp.dataset.f;
+      if (f === 'shelfId') { st.shelfId = inp.value; st.fach = 0; if (!st.posTouched) st.pos = nextPos(st.shelfId, 0); renderSheet(); return; }
+      if (f === 'pos') { st.pos = parseInt(inp.value, 10) || null; st.posTouched = true; return; }
+      if (f === 'sname' || f === 'svol' || f === 'stotal') st.seriesTouched = true;
+      st[f] = inp.value;
+      if (f === 'sname') { const x = seriesByName(inp.value); if (x && x.total && !st.stotal) { st.stotal = String(x.total); const t = q('[data-f="stotal"]'); if (t) t.value = st.stotal; } }
+    }));
+    q('[data-sheet="cancel"]').addEventListener('click', () => { closeSheet(); });
+    q('.sheet-backdrop').addEventListener('click', () => { closeSheet(); });
+    q('[data-sheet="save"]').addEventListener('click', saveSheet);
+  }
+
+  async function saveSheet() {
+    const st = sheet;
+    if (!st) return;
+    if (!st.shelfId) { toast('Bitte ein Regal wählen'); return; }
+    const sc = S.scan;
+    const bk = st.data && st.data.book;
+    const pos = st.pos || nextPos(st.shelfId, st.fach);
+    const b = newBook({ isbn: st.isbn, shelfId: st.shelfId, fach: st.fach, pos, needsLookup: !st.dataDone || (st.data && st.data.offline), seriesHintDone: st.seriesTouched || st.kind === 'series' });
+    if (bk) {
+      ['title', 'subtitle', 'authors', 'publisher', 'year', 'pages', 'language', 'cover', 'description', 'categories', 'sources']
+        .forEach((k) => { if (bk[k] && (!Array.isArray(bk[k]) || bk[k].length)) b[k] = bk[k]; });
+    } else if (st.dataDone && !st.data.offline) b.needsReview = true;
+    if (!b.pages && st.marc && st.marc.pages) b.pages = st.marc.pages;
+    await openGap(b.shelfId, b.fach, b.pos);
+    if (st.kind === 'series' && st.sname.trim()) {
+      const v = parseFloat(String(st.svol).replace(',', '.'));
+      const sr = await assignSeries(b, st.sname, isNaN(v) ? null : v);
+      const tot = parseInt(st.stotal, 10);
+      if (sr && tot && sr.total !== tot) { sr.total = tot; await saveSeries(sr); }
+    } else {
+      await saveBook(b);
+    }
+    await bumpBackupCounter(1);
+    sc.shelfId = b.shelfId; sc.fach = b.fach;
+    const sh = shelfById(b.shelfId);
+    if (sh && /^#\/scan/.test(location.hash)) setTheme(sh.theme);
+    logEntry({ key: 'B' + b.id, state: b.needsLookup ? 'laedt' : 'ok', bookId: b.id, info: shelfLabel(sh) + (b.fach ? ' · Fach ' + b.fach : '') + ' · Platz ' + b.pos });
+    closeSheet();
+    if (b.needsLookup) Lookup.add(b.id);
+    else if (!b.cover && b.isbn) Lookup.addCover(b.id);
   }
 
   async function startCamera() {
@@ -1009,6 +1116,7 @@
     if (!ul || !S.scan) return;
     ul.innerHTML = S.scan.log.map((e) => {
       const b = e.bookId ? bookById(e.bookId) : null;
+      if (e.bookId && !b) return '<li class="card"><div class="grow muted small">Eintrag gelöscht</div></li>';
       const title = b ? (b.title || 'ISBN ' + L.formatIsbn(b.isbn)) : e.title;
       const pill = { laedt: '<span class="pill">lädt …</span>', ok: '<span class="pill">erfasst</span>', leer: '<span class="pill warn">nicht gefunden – Nacharbeiten</span>',
         offline: '<span class="pill warn">offline – wird nachgeholt</span>', dup: '<span class="pill warn">schon vorhanden</span>', fremd: '<span class="pill warn">kein Buch-Barcode</span>',
@@ -1031,6 +1139,7 @@
     if (!sc) return;
     const text = String(raw || '').trim();
     if (!text) return;
+    if (sheet) return;   // Fenster offen: weitere Scans ignorieren
     // Regal-QR
     if (text.indexOf('BIBREGAL:') === 0) {
       const sh = shelfById(text.slice(9));
@@ -1040,12 +1149,7 @@
       if (sc.shelfId !== sh.id) {
         sc.shelfId = sh.id; sc.fach = 0;
         setTheme(sh.theme);
-        logEntry({ key: 'R' + Date.now(), state: 'regal', title: sh.name, info: 'Bücher landen ab jetzt hier' });
-        const sel = qs('#sc-shelf'); if (sel) sel.value = sh.id;
-        const wasRunning = !!Scanner.reader;
-        Scanner.stop();
-        viewScan('erfassen');
-        if (wasRunning) startCamera();
+        logEntry({ key: 'R' + Date.now(), state: 'regal', title: sh.name, info: 'ist jetzt vorgewählt' });
       }
       return;
     }
@@ -1069,7 +1173,6 @@
       }
       return;
     }
-    if (!sc.shelfId) { toast('Bitte zuerst ein Regal wählen oder Regal-QR scannen'); return; }
     if (existing.length) {
       beep('dup');
       const b = existing[0];
@@ -1077,12 +1180,7 @@
       return;
     }
     beep('ok');
-    const b = newBook({ isbn, shelfId: sc.shelfId, fach: sc.fach, pos: nextPos(sc.shelfId, sc.fach), needsLookup: true });
-    await saveBook(b);
-    await bumpBackupCounter(1);
-    logEntry({ key: 'B' + b.id, state: 'laedt', bookId: b.id, info: shelfLabel(shelfById(b.shelfId)) + (b.fach ? ' · Fach ' + b.fach : '') + ' · Platz ' + b.pos });
-    updateNextPos();
-    Lookup.add(b.id);
+    openScanSheet(isbn);
   }
 
   Lookup.listeners.add((id, outcome) => {
@@ -1228,7 +1326,8 @@
       '<label class="field">Autor<input class="input" name="author" value="' + esc(sr.author || '') + '"></label>' +
       '<label class="field">Anzahl Bände (leer = unbekannt)<input class="input" name="total" type="number" inputmode="numeric" min="1" max="200" value="' + (sr.total || '') + '"></label>' +
       '<button class="btn block" type="submit">Speichern</button>' +
-      '<button class="btn danger block" type="button" data-act="delseries">Reihe löschen (Bücher bleiben erhalten)</button></form></details>';
+      '<button class="btn danger block" type="button" data-act="delseriesall">Reihe mit allen Büchern löschen</button>' +
+      '<button class="btn ghost block" type="button" data-act="delseries">Nur Reihe auflösen, Bücher behalten</button></form></details>';
     $app.innerHTML = html;
     hookCovers();
     qs('#sredit').addEventListener('submit', async (e) => {
@@ -1241,8 +1340,17 @@
       toast('Gespeichert');
       viewSeries(id);
     });
+    on('[data-act="delseriesall"]', 'click', async () => {
+      const own = S.books.filter((x) => x.seriesId === id);
+      if (!confirm('Reihe „' + sr.name + '“ und ' + own.length + (own.length === 1 ? ' Buch' : ' Bücher') + ' endgültig löschen?')) return;
+      for (const b of own) await deleteBook(b.id);
+      await DB.del('series', id);
+      S.series = S.series.filter((x) => x.id !== id);
+      toast('Reihe und ' + own.length + ' Bücher gelöscht');
+      location.hash = '#/reihen';
+    });
     on('[data-act="delseries"]', 'click', async () => {
-      if (!confirm('Reihe „' + sr.name + '“ löschen? Die Bücher bleiben erhalten.')) return;
+      if (!confirm('Reihe „' + sr.name + '“ auflösen? Die Bücher bleiben in der Bibliothek.')) return;
       for (const b of S.books.filter((x) => x.seriesId === id)) { b.seriesId = null; b.volume = null; b.seriesHintDone = true; await saveBook(b); }
       await DB.del('series', id);
       S.series = S.series.filter((x) => x.id !== id);
@@ -1536,7 +1644,7 @@
   // ---------- Router ----------
   function route(keepScroll) {
     const h = location.hash || '#/';
-    if (!/^#\/scan/.test(h)) { Scanner.stop(); }
+    if (!/^#\/scan/.test(h)) { Scanner.stop(); closeSheet(); }
     const p = h.slice(2).split('/');
     if (keepScroll !== true) window.scrollTo(0, 0);
     if (!p[0]) return viewHome();

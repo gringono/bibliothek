@@ -322,3 +322,10 @@ body:has(.head.has-art) .web{display:none}
 .vol.reading{background:#FBEBD3;border-color:#EFC98E;color:#6A3F00}
 .vol.missing{background:transparent;color:var(--muted);opacity:.55;border-style:dashed}
 .vol-legend .vol{min-height:24px;font-weight:600}
+
+/* ---------- Erfassen-Fenster ---------- */
+.sheet-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:40;animation:fadein .15s}
+.sheet{position:fixed;left:0;right:0;bottom:0;max-width:640px;margin:0 auto;z-index:41;background:var(--surface);color:var(--text);border-radius:20px 20px 0 0;
+  padding:18px 20px calc(18px + env(safe-area-inset-bottom));max-height:88vh;overflow-y:auto;box-shadow:0 -8px 30px rgba(0,0,0,.25);animation:slideup .2s ease-out}
+@keyframes slideup{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
+@keyframes fadein{from{opacity:0}to{opacity:1}}

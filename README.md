@@ -1,4 +1,4 @@
-# Bibliothek – Version 0.2.3
+# Bibliothek – Version 0.2.4
 
 PWA zur Verwaltung einer privaten Büchersammlung. Alle Daten bleiben lokal auf dem iPhone (IndexedDB), Sicherung als JSON-Datei in iCloud Drive.
 
