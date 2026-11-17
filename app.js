@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const L = window.BibLib;
-  const APP_VERSION = '0.1.5';
+  const APP_VERSION = '0.1.6';
   const $app = document.getElementById('app');
 
   const THEMES = { leseecke: 'Leseecke', horror: 'Horror', romantasy: 'Romantasy', fantasy: 'Fantasy' };
@@ -574,8 +574,9 @@
     setTheme(s ? s.theme : 'leseecke'); setTab('home');
     let html = '<header class="head"><a class="back" href="' + (s ? '#/regal/' + esc(s.id) : '#/') + '">' + ICON.back + esc(s ? s.name : 'Bibliothek') + '</a></header>';
     html += '<div class="detail-top"><div style="display:flex;flex-direction:column;gap:8px;align-items:center">' + coverHtml(b, true) +
-      '<label class="btn small ghost" style="cursor:pointer;padding:0 12px">Cover-Foto<input type="file" id="coverfile" accept="image/*" class="sr-only"></label>' +
-      '<a class="btn small ghost" style="padding:0 12px" target="_blank" rel="noopener" href="' + esc(coverSearchUrl(b)) + '">Im Web suchen</a>' +
+      '<a class="btn small ghost" style="padding:0 12px;width:100%" target="_blank" rel="noopener" href="' + esc(coverSearchUrl(b)) + '">Im Web suchen</a>' +
+      '<button type="button" class="btn small ghost" data-act="paste" style="padding:0 12px;width:100%">Cover einfügen</button>' +
+      '<label class="btn small ghost" style="cursor:pointer;padding:0 12px;width:100%">Cover-Foto<input type="file" id="coverfile" accept="image/*" class="sr-only"></label>' +
       (b.cover ? '<button type="button" class="linkbtn small" data-act="nocover" style="min-height:32px">entfernen</button>' : '') + '</div><div class="grow"><h1 class="book-title" style="font-size:24px;-webkit-line-clamp:4">' + esc(b.title || 'ISBN ' + L.formatIsbn(b.isbn)) + '</h1>' +
       (b.subtitle ? '<p class="muted" style="margin:4px 0 0">' + esc(b.subtitle) + '</p>' : '') +
       '<p style="margin:8px 0 0;font-weight:600">' + esc(authorStr(b) || '–') + '</p>' +
@@ -662,6 +663,7 @@
       }
     });
     on('[data-act="nocover"]', 'click', () => upd({ cover: '' }));
+    on('[data-act="paste"]', 'click', () => pasteCover((data) => upd({ cover: data }).then(() => toast('Cover gespeichert'))));
     on('[data-act="relookup"]', 'click', () => { b.needsLookup = true; saveBook(b).then(() => { Lookup.add(b.id); toast('Wird abgefragt …'); }); });
     on('[data-act="titlesearch"]', 'click', () => {
       const q = [qs('#edit [name="title"]').value, qs('#edit [name="authors"]').value].join(' ').trim();
@@ -679,6 +681,40 @@
       await deleteBook(id);
       location.hash = s ? '#/regal/' + s.id : '#/';
     });
+  }
+
+  /**
+   * Cover aus der Zwischenablage: zuerst ein kopiertes Bild, sonst ein kopierter Bild-Link.
+   * Muss direkt im Tipp-Ereignis aufgerufen werden (iOS zeigt dann „Einfügen“ zum Bestätigen).
+   */
+  async function pasteCover(save) {
+    const cb = navigator.clipboard;
+    if (!cb || (!cb.read && !cb.readText)) { toast('Einfügen wird auf diesem Gerät nicht unterstützt'); return; }
+    try {
+      if (cb.read) {
+        const items = await cb.read();
+        for (const it of items) {
+          const t = it.types.find((x) => x.indexOf('image/') === 0);
+          if (t) { const blob = await it.getType(t); return save(await shrinkImage(blob, 360, 0.8)); }
+        }
+        for (const it of items) {
+          const t = it.types.includes('text/uri-list') ? 'text/uri-list' : it.types.includes('text/plain') ? 'text/plain' : '';
+          if (t) { const txt = (await (await it.getType(t)).text()).trim(); return saveLink(txt, save); }
+        }
+      } else {
+        return saveLink((await cb.readText()).trim(), save);
+      }
+      toast('Kein Bild in der Zwischenablage. Im Web: Bild lange drücken → „Kopieren“.', 4000);
+    } catch (e) {
+      toast(e && e.name === 'NotAllowedError' ? 'Einfügen abgebrochen' : 'Zwischenablage nicht lesbar', 3000);
+    }
+  }
+
+  async function saveLink(txt, save) {
+    const url = (txt.split(/\s+/)[0] || '');
+    if (!/^https:\/\/\S+$/i.test(url)) { toast('Kein Bild in der Zwischenablage. Im Web: Bild lange drücken → „Kopieren“.', 4000); return; }
+    if (!(await probeImage(url))) { toast('Der kopierte Link ist kein Bild'); return; }
+    return save(url);
   }
 
   /** Google-Bildersuche nach dem Cover (Titel + Autor, sonst ISBN). */
@@ -993,7 +1029,7 @@
       '</section>' +
       '<section class="card" style="padding:16px"><h2 style="font-family:var(--font-title);font-size:18px">Cover</h2>' +
       '<p class="muted small">Fehlt ein Cover, sucht die App automatisch weiter: Google-Bild (ohne Schlüssel), dann Open Library.</p>' +
-      '<p class="muted small">Findet keine Quelle ein Cover: in der Buchansicht „Im Web suchen“, Bild lange drücken → „Zu Fotos hinzufügen“, dann „Cover-Foto“.</p>' +
+      '<p class="muted small">Findet keine Quelle ein Cover: in der Buchansicht „Im Web suchen“, Bild lange drücken → „Kopieren“, zurück in die App → „Cover einfügen“.</p>' +
       (noCover ? '<button class="btn ghost block" data-act="covers" style="margin-top:12px">Fehlende Cover nachladen (' + noCover + ')</button>' : '<p class="muted small" style="margin-bottom:0">Alle Bücher mit ISBN haben ein Cover.</p>') + '</section>' +
       '<a class="card row" href="#/nacharbeiten" style="padding:14px 16px;text-decoration:none;color:var(--text)"><span class="grow">Nacharbeiten</span><span class="pill' + (review ? ' warn' : '') + '">' + review + '</span>' + ICON.chevron + '</a>' +
       '<a class="card row" href="#/buch/neu" style="padding:14px 16px;text-decoration:none;color:var(--text)"><span class="grow">Buch ohne ISBN hinzufügen</span>' + ICON.chevron + '</a>' +
