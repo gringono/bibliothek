@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const L = window.BibLib;
-  const APP_VERSION = '0.1.1';
+  const APP_VERSION = '0.1.4';
   const $app = document.getElementById('app');
 
   const THEMES = { leseecke: 'Leseecke', horror: 'Horror', romantasy: 'Romantasy', fantasy: 'Fantasy' };
@@ -34,13 +34,88 @@
   const authorStr = (b) => (b.authors || []).join(', ');
   const shelfLabel = (s) => s ? s.name : 'ohne Regal';
 
-  function toast(msg, ms) {
+  function toast(msg, ms, action) {
+    document.querySelectorAll('.toast').forEach((x) => x.remove());
     const t = document.createElement('div');
     t.className = 'toast';
     t.setAttribute('role', 'status');
-    t.textContent = msg;
+    const span = document.createElement('span');
+    span.textContent = msg;
+    t.appendChild(span);
+    if (action) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'toast-btn';
+      btn.textContent = action.label;
+      btn.addEventListener('click', () => { t.remove(); action.fn(); });
+      t.appendChild(btn);
+    }
     document.body.appendChild(t);
     setTimeout(() => t.remove(), ms || 2600);
+  }
+
+  /** Aktuelle Ansicht neu zeichnen, Scrollposition behalten. */
+  function refresh() {
+    const y = window.scrollY;
+    route(true);
+    window.scrollTo(0, y);
+  }
+
+  /** Nach links wischen = löschen (mit Rückgängig). */
+  function hookSwipe() {
+    qsa('li.swipe > a.book').forEach((a) => {
+      const li = a.parentElement;
+      let x0 = 0, y0 = 0, dx = 0, mode = '', pid = null, swiped = false;
+      const W = () => li.getBoundingClientRect().width;
+      const reset = () => { a.style.transition = 'transform .2s'; a.style.transform = ''; li.classList.remove('armed'); };
+      a.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        x0 = e.clientX; y0 = e.clientY; dx = 0; mode = ''; pid = e.pointerId; swiped = false;
+        a.style.transition = 'none';
+      });
+      a.addEventListener('pointermove', (e) => {
+        if (pid !== e.pointerId) return;
+        const mx = e.clientX - x0, my = e.clientY - y0;
+        if (!mode) {
+          if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
+          mode = Math.abs(mx) > Math.abs(my) * 1.2 && mx < 0 ? 'swipe' : 'scroll';
+          if (mode === 'swipe') { try { a.setPointerCapture(e.pointerId); } catch (err) { /* egal */ } }
+        }
+        if (mode !== 'swipe') return;
+        dx = Math.min(0, mx);
+        a.style.transform = 'translateX(' + dx + 'px)';
+        li.classList.toggle('armed', dx < -W() * 0.4);
+      });
+      const end = (e) => {
+        if (pid !== e.pointerId) return;
+        pid = null;
+        if (mode !== 'swipe') return;
+        swiped = true;
+        if (dx < -W() * 0.4) removeWithUndo(li, a.dataset.id);
+        else reset();
+      };
+      a.addEventListener('pointerup', end);
+      a.addEventListener('pointercancel', (e) => { if (pid === e.pointerId) { pid = null; reset(); } });
+      a.addEventListener('click', (e) => { if (swiped) { e.preventDefault(); swiped = false; } }, true);
+    });
+  }
+
+  async function removeWithUndo(li, id) {
+    const b = bookById(id);
+    if (!b) return;
+    const a = li.querySelector('a.book');
+    a.style.transition = 'transform .2s';
+    a.style.transform = 'translateX(-110%)';
+    li.style.transition = 'height .25s .15s, opacity .25s .15s';
+    li.style.height = li.offsetHeight + 'px';
+    requestAnimationFrame(() => { li.style.height = '0px'; li.style.opacity = '0'; li.style.overflow = 'hidden'; });
+    const copy = JSON.parse(JSON.stringify(b));
+    await deleteBook(id);
+    setTimeout(refresh, 450);
+    toast('„' + (b.title || 'Buch') + '“ gelöscht', 5000, {
+      label: 'Rückgängig',
+      fn: async () => { await saveBook(copy); refresh(); }
+    });
   }
 
   function setTheme(t) {
@@ -59,6 +134,7 @@
 
   // ---------- Icons ----------
   const ICON = {
+    trash: '<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"></path><path d="M10 11v6M14 11v6"></path><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path><path d="M9 7V4h6v3"></path></svg>',
     back: '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"></path></svg>',
     chevron: '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>',
     search: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>',
@@ -73,6 +149,8 @@
 
   // ---------- Daten ----------
   async function load() {
+    S.googleKey = await DB.getMeta('googleKey', '');
+    S.vlbCovers = await DB.getMeta('vlbCovers', false);
     S.shelves = (await DB.all('shelves')).sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true }));
     S.books = await DB.all('books');
   }
@@ -117,9 +195,73 @@
     await DB.setMeta('booksSinceBackup', c + (n || 1));
   }
 
+  // ---------- Cover-Suche (ohne Schlüssel) ----------
+  /** Lädt ein Bild probeweise. true, wenn es lädt und keine Mini-Grafik ist. */
+  function probeImage(url, ms) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      const t = setTimeout(() => { img.src = ''; resolve(false); }, ms || 8000);
+      img.onload = () => { clearTimeout(t); resolve(img.naturalWidth >= 40 && img.naturalHeight >= 40); };
+      img.onerror = () => { clearTimeout(t); resolve(false); };
+      img.referrerPolicy = 'no-referrer';
+      img.src = url;
+    });
+  }
+
+  /** JSONP-Abruf (Google Dynamic Links liefert kein CORS, aber ein Skript mit Rückruf). */
+  function jsonp(url, ms) {
+    return new Promise((resolve, reject) => {
+      const cb = '__gbcb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+      const s = document.createElement('script');
+      const done = () => { clearTimeout(t); s.remove(); window[cb] = function () {}; };
+      const t = setTimeout(() => { done(); reject(new Error('Zeitüberschreitung')); }, ms || 8000);
+      window[cb] = (data) => { done(); resolve(data); };
+      s.onerror = () => { done(); reject(new Error('nicht erreichbar')); };
+      s.src = url + '&callback=' + cb;
+      document.head.appendChild(s);
+    });
+  }
+
+  const COVER_SOURCES = {
+    googlebild: async (isbn) => {
+      const d = await jsonp('https://books.google.com/books?jscmd=viewapi&bibkeys=ISBN:' + isbn);
+      const e = d && d['ISBN:' + isbn];
+      if (!e || !e.thumbnail_url) return '';
+      const url = e.thumbnail_url.replace(/^http:/, 'https:').replace(/zoom=\d/, 'zoom=1').replace('&edge=curl', '');
+      return (await probeImage(url)) ? url : '';
+    },
+    vlb: async (isbn) => {
+      const url = 'https://portal.dnb.de/opac/mvb/cover?isbn=' + isbn;
+      return (await probeImage(url)) ? url : '';
+    },
+    openlibrary: async (isbn) => {
+      const url = 'https://covers.openlibrary.org/b/isbn/' + isbn + '-M.jpg?default=false';
+      return (await probeImage(url)) ? url : '';
+    }
+  };
+  const COVER_LABEL = { googlebild: 'Google (Bild, ohne Schlüssel)', vlb: 'VLB über DNB', openlibrary: 'Open Library' };
+
+  /** Sucht ein Cover über die ISBN. Rückgabe { url, source, tried: {quelle: 'ok'|'kein'|'fehler'|'aus'} }. */
+  async function findCover(isbn) {
+    const tried = {};
+    const order = ['googlebild', 'vlb', 'openlibrary'];
+    for (const k of order) {
+      if (k === 'vlb' && !S.vlbCovers) { tried[k] = 'aus'; continue; }
+      try {
+        const url = await COVER_SOURCES[k](isbn);
+        tried[k] = url ? 'ok' : 'kein';
+        if (url) return { url, source: k, tried };
+      } catch (e) {
+        tried[k] = 'fehler';
+      }
+    }
+    return { url: '', source: '', tried };
+  }
+
   // ---------- Datenabfrage (Warteschlange) ----------
   const Lookup = {
-    queue: [], running: 0, listeners: new Set(),
+    queue: [], running: 0, listeners: new Set(), coverOnly: new Set(),
+    addCover(id) { this.coverOnly.add(id); this.add(id); },
     add(id) { if (!this.queue.includes(id)) this.queue.push(id); this.pump(); },
     async pump() {
       while (this.running < 2 && this.queue.length) {
@@ -132,12 +274,23 @@
       const b = bookById(id);
       if (!b || !b.isbn) return;
       let r;
-      try { r = await L.lookupIsbn(b.isbn); } catch (e) { r = { book: null, status: {}, offline: true }; }
-      await DB.setMeta('lastSourceStatus', { at: now(), isbn: b.isbn, status: r.status });
+      const coverOnly = this.coverOnly.has(id);
+      this.coverOnly.delete(id);
+      try { r = await L.lookupIsbn(b.isbn, { googleKey: S.googleKey }); } catch (e) { r = { book: null, status: {}, errors: {}, offline: true }; }
+      await DB.setMeta('lastSourceStatus', { at: now(), isbn: b.isbn, status: r.status, errors: r.errors });
       const cur = bookById(id);
       if (!cur) return;
       let outcome;
-      if (r.book) {
+      if (coverOnly) {
+        // Nur Lücken füllen, bearbeitete Daten nicht überschreiben
+        if (r.book) {
+          if (!cur.cover && r.book.cover) cur.cover = r.book.cover;
+          if (!cur.pages && r.book.pages) cur.pages = r.book.pages;
+          if (!cur.description && r.book.description) cur.description = r.book.description;
+          (r.book.sources || []).forEach((q) => { if (!(cur.sources || []).includes(q)) cur.sources = (cur.sources || []).concat(q); });
+        }
+        outcome = r.book && cur.cover ? 'ok' : 'leer';
+      } else if (r.book) {
         ['title', 'subtitle', 'authors', 'publisher', 'year', 'pages', 'language', 'cover', 'description', 'categories', 'sources']
           .forEach((k) => { if (r.book[k] && (!Array.isArray(r.book[k]) || r.book[k].length)) cur[k] = r.book[k]; });
         cur.needsLookup = false; cur.needsReview = !cur.title;
@@ -146,6 +299,16 @@
         cur.needsLookup = true; outcome = 'offline';
       } else {
         cur.needsLookup = false; cur.needsReview = true; outcome = 'leer';
+      }
+      if (!cur.cover && cur.isbn && !r.offline) {
+        try {
+          const c = await findCover(cur.isbn);
+          if (c.url) {
+            cur.cover = c.url;
+            if (!(cur.sources || []).includes(c.source)) cur.sources = (cur.sources || []).concat(c.source);
+            if (coverOnly) outcome = 'ok';
+          }
+        } catch (e) { /* Cover ist optional */ }
       }
       await saveBook(cur);
       this.listeners.forEach((fn) => fn(id, outcome, r.status));
@@ -250,7 +413,7 @@
   function coverHtml(b, big) {
     const ini = esc(((b.title || '?').trim()[0] || '?').toUpperCase());
     return '<div class="cover' + (big ? ' big' : '') + '" aria-hidden="true"><span class="ini">' + ini + '</span>' +
-      (b.cover ? '<img src="' + esc(b.cover) + '" alt="" loading="lazy" style="position:absolute;inset:0">' : '') + '</div>';
+      (b.cover ? '<img src="' + esc(b.cover) + '" alt="" loading="lazy" referrerpolicy="no-referrer" style="position:absolute;inset:0">' : '') + '</div>';
   }
 
   function ratingHtml(r) {
@@ -271,7 +434,7 @@
     if (b.lentTo) pill = '<span class="pill warn">verliehen</span>';
     if (b.needsLookup) pill = '<span class="pill warn">Daten fehlen</span>';
     else if (b.needsReview) pill = '<span class="pill warn">prüfen</span>';
-    return '<li><a class="book" href="#/buch/' + esc(b.id) + '">' + coverHtml(b) +
+    return '<li class="swipe"><div class="swipe-bg" aria-hidden="true">' + ICON.trash + 'Löschen</div><a class="book" draggable="false" data-id="' + esc(b.id) + '" href="#/buch/' + esc(b.id) + '">' + coverHtml(b) +
       '<div class="grow"><div class="book-title">' + esc(b.title || ('ISBN ' + L.formatIsbn(b.isbn))) + '</div>' +
       '<div class="muted small">' + esc(authorStr(b) || '–') + (b.copies > 1 ? ' · ' + b.copies + ' Exemplare' : '') + '</div>' +
       '<div class="book-meta">' + pill + ratingHtml(b.rating) + '<span class="muted small">' + esc(where.join(' · ')) + '</span></div></div></a></li>';
@@ -359,10 +522,10 @@
       '<a class="btn small ghost" href="#/regal/' + esc(id) + '/bearbeiten">Bearbeiten</a><div class="grow"></div>' +
       '<label class="sr-only" for="sort">Sortierung</label><select id="sort" class="input" style="width:auto;min-height:36px;padding:4px 10px;font-size:14px">' +
       [['pos', 'Platz'], ['titel', 'Titel'], ['autor', 'Autor']].map(([v, l]) => '<option value="' + v + '"' + (st.sort === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select></div>';
-    html += list.length ? '<ul class="books">' + list.map((b) => bookRow(b)).join('') + '</ul>'
+    html += list.length ? '<ul class="books">' + list.map((b) => bookRow(b)).join('') + '</ul><p class="muted small" style="text-align:center;margin-top:14px">Tipp: Buch nach links wischen zum Löschen.</p>'
       : '<div class="empty">' + (total ? 'In diesem Fach steht noch nichts.' : 'Noch keine Bücher in diesem Regal. Tippe auf „Bücher erfassen“.') + '</div>';
     $app.innerHTML = html;
-    hookCovers();
+    hookCovers(); hookSwipe();
     on('[data-fach]', 'click', (e) => { st.fach = e.currentTarget.dataset.fach; viewShelf(id); });
     on('#sort', 'change', (e) => { st.sort = e.currentTarget.value; viewShelf(id); });
   }
@@ -545,7 +708,7 @@
   async function titleSearch(box, q, onPick) {
     if (!q) { toast('Bitte Titel eingeben'); return; }
     box.innerHTML = '<p class="muted">Suche nach „' + esc(q) + '“ …</p>';
-    const res = await L.searchByTitle(q);
+    const res = await L.searchByTitle(q, { googleKey: S.googleKey });
     if (!res.length) { box.innerHTML = '<p class="muted">Nichts gefunden oder keine Verbindung.</p>'; return; }
     box.innerHTML = '<ul class="books">' + res.map((r, i) => '<li><button type="button" class="book" data-pick="' + i + '" style="width:100%;background:none;border:0;border-bottom:1px solid var(--line);text-align:left;cursor:pointer">' +
       coverHtml(r) + '<div class="grow"><div class="book-title" style="font-size:16px">' + esc(r.title) + '</div><div class="muted small">' + esc((r.authors || []).join(', ')) + ' · ' + esc(r.year || '') + ' · ' + esc(r.source) + '</div></div></button></li>').join('') + '</ul>';
@@ -738,7 +901,7 @@
       } else {
         beep('ok');
         logEntry({ key: 'F' + isbn, state: 'neu', title: 'ISBN ' + L.formatIsbn(isbn), info: 'Daten werden gesucht …' });
-        L.lookupIsbn(isbn).then((r) => logEntry({ key: 'F' + isbn, title: r.book ? r.book.title : 'ISBN ' + L.formatIsbn(isbn), info: r.book ? authorStr(r.book) : (r.offline ? 'offline' : 'keine Daten gefunden') }));
+        L.lookupIsbn(isbn, { googleKey: S.googleKey }).then((r) => logEntry({ key: 'F' + isbn, title: r.book ? r.book.title : 'ISBN ' + L.formatIsbn(isbn), info: r.book ? authorStr(r.book) : (r.offline ? 'offline' : 'keine Daten gefunden') }));
       }
       return;
     }
@@ -783,7 +946,7 @@
         [b.title, b.subtitle, authorStr(b), b.isbn, b.notes, b.publisher].join(' ').toLowerCase().includes(q));
       box.innerHTML = hits.length ? '<ul class="books">' + hits.slice(0, 100).map((b) => bookRow(b, { showShelf: true })).join('') + '</ul>'
         : '<p class="empty">Nicht im Bestand.</p>';
-      hookCovers();
+      hookCovers(); hookSwipe();
     };
     qs('#q').addEventListener('input', run);
     run();
@@ -796,7 +959,7 @@
     $app.innerHTML = head({ title: 'Verliehen' }) + (list.length
       ? '<ul class="books">' + list.map((b) => bookRow(b, { showShelf: true }).replace('<span class="pill warn">verliehen</span>', '<span class="pill warn">an ' + esc(b.lentTo) + ' seit ' + fmtDate(b.lentSince) + '</span>')).join('') + '</ul>'
       : '<p class="empty">Gerade ist nichts verliehen.</p>');
-    hookCovers();
+    hookCovers(); hookSwipe();
   }
 
   function viewReview() {
@@ -805,7 +968,7 @@
     $app.innerHTML = head({ back: '#/', backLabel: 'Bibliothek', title: 'Nacharbeiten' }) +
       (list.some((b) => b.needsLookup) ? '<button class="btn ghost block" data-act="retry" style="margin-bottom:12px">Fehlende Daten erneut abfragen</button>' : '') +
       (list.length ? '<ul class="books">' + list.map((b) => bookRow(b, { showShelf: true })).join('') + '</ul>' : '<p class="empty">Alles erledigt.</p>');
-    hookCovers();
+    hookCovers(); hookSwipe();
     on('[data-act="retry"]', 'click', () => { Lookup.retryPending(); toast('Wird abgefragt …'); });
   }
 
@@ -816,18 +979,47 @@
     let persisted = null;
     try { persisted = navigator.storage && navigator.storage.persisted ? await navigator.storage.persisted() : null; } catch (e) { persisted = null; }
     const review = S.books.filter((b) => b.needsReview || b.needsLookup).length;
+    const noCover = S.books.filter((b) => !b.cover && b.isbn).length;
     $app.innerHTML = head({ title: 'Mehr' }) +
       '<div class="stack">' +
       '<section class="card" style="padding:16px"><h2 style="font-family:var(--font-title);font-size:18px">Sicherung</h2>' +
       '<p class="muted small">Letzte Sicherung: ' + (lastBackup ? fmtDate(lastBackup) : 'noch nie') + ' · seitdem ' + since + ' neue Bücher.<br>Beim Sichern „In Dateien sichern“ → <b>iCloud Drive</b> wählen.</p>' +
       '<div class="stack"><button class="btn block" data-act="export">Jetzt sichern</button>' +
       '<label class="btn ghost block" style="cursor:pointer">Sicherung wiederherstellen<input type="file" id="imp" accept="application/json,.json" class="sr-only"></label></div></section>' +
+      '<section class="card" style="padding:16px"><h2 style="font-family:var(--font-title);font-size:18px">Google Books</h2>' +
+      '<p class="muted small">Ohne eigenen Schlüssel ist Google Books fast immer gesperrt (Kontingent erschöpft). Der Schlüssel bleibt nur auf diesem Gerät.</p>' +
+      '<form class="row" id="gkey"><label class="sr-only" for="gk">Google-API-Schlüssel</label><input class="input grow" id="gk" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="API-Schlüssel einfügen" value="' + esc(S.googleKey) + '"><button class="btn small" type="submit">Speichern</button></form>' +
+      '</section>' +
+      '<section class="card" style="padding:16px"><h2 style="font-family:var(--font-title);font-size:18px">Cover</h2>' +
+      '<p class="muted small">Fehlt ein Cover, sucht die App automatisch weiter: Google-Bild (ohne Schlüssel), dann Open Library.</p>' +
+      '<label class="row" style="gap:10px;min-height:44px;cursor:pointer"><input type="checkbox" id="vlb" style="width:22px;height:22px;accent-color:var(--accent)"' + (S.vlbCovers ? ' checked' : '') + '><span class="grow"><b>VLB-Cover über die DNB</b><br><span class="muted small">Beste Abdeckung für deutsche Bücher. Nutzung ist nur für Bibliotheken vereinbart, für den privaten Gebrauch auf eigenes Risiko.</span></span></label>' +
+      (noCover ? '<button class="btn ghost block" data-act="covers" style="margin-top:12px">Fehlende Cover nachladen (' + noCover + ')</button>' : '<p class="muted small" style="margin-bottom:0">Alle Bücher mit ISBN haben ein Cover.</p>') + '</section>' +
       '<a class="card row" href="#/nacharbeiten" style="padding:14px 16px;text-decoration:none;color:var(--text)"><span class="grow">Nacharbeiten</span><span class="pill' + (review ? ' warn' : '') + '">' + review + '</span>' + ICON.chevron + '</a>' +
       '<a class="card row" href="#/buch/neu" style="padding:14px 16px;text-decoration:none;color:var(--text)"><span class="grow">Buch ohne ISBN hinzufügen</span>' + ICON.chevron + '</a>' +
       '<a class="card row" href="#/etiketten" style="padding:14px 16px;text-decoration:none;color:var(--text)"><span class="grow">Regal-Etiketten (QR) drucken</span>' + ICON.chevron + '</a>' +
       '<a class="card row" href="#/diagnose" style="padding:14px 16px;text-decoration:none;color:var(--text)"><span class="grow">Datenquellen testen</span>' + ICON.chevron + '</a>' +
       '<p class="muted small">Speicher dauerhaft: ' + (persisted === null ? 'unbekannt' : persisted ? 'ja' : 'nein') + ' · Version ' + APP_VERSION + ' · ' + S.books.length + ' Einträge</p></div>';
     on('[data-act="export"]', 'click', exportData);
+    qs('#gkey').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      S.googleKey = qs('#gk').value.trim();
+      await DB.setMeta('googleKey', S.googleKey);
+      toast(S.googleKey ? 'Schlüssel gespeichert – jetzt „Datenquellen testen“' : 'Schlüssel entfernt');
+    });
+    on('#vlb', 'change', async (e) => {
+      S.vlbCovers = e.currentTarget.checked;
+      await DB.setMeta('vlbCovers', S.vlbCovers);
+      toast(S.vlbCovers ? 'VLB-Cover eingeschaltet' : 'VLB-Cover ausgeschaltet');
+    });
+    on('[data-act="covers"]', 'click', () => {
+      const list = S.books.filter((b) => !b.cover && b.isbn);
+      list.forEach((b) => Lookup.addCover(b.id));
+      toast(list.length + ' Bücher werden abgefragt …', 3500);
+      let left = list.length;
+      const ids = new Set(list.map((b) => b.id));
+      const fn = (id) => { if (ids.has(id) && --left === 0) { Lookup.listeners.delete(fn); const n = list.filter((b) => bookById(b.id) && bookById(b.id).cover).length; toast(n + ' von ' + list.length + ' Covern gefunden', 4000); if (location.hash === '#/mehr') viewMore(); } };
+      Lookup.listeners.add(fn);
+    });
     qs('#imp').addEventListener('change', importData);
   }
 
@@ -859,21 +1051,30 @@
     setTheme('leseecke'); setTab('mehr');
     const last = await DB.getMeta('lastSourceStatus', null);
     const label = { ok: 'erreichbar, Treffer', leer: 'erreichbar, kein Treffer', fehler: 'nicht erreichbar (Netz oder CORS)' };
-    const table = (st) => '<dl class="kv">' + ['dnb', 'google', 'openlibrary'].map((k) => '<dt>' + ({ dnb: 'DNB', google: 'Google Books', openlibrary: 'Open Library' }[k]) + '</dt><dd>' + esc(label[st[k]] || '–') + '</dd>').join('') + '</dl>';
+    const table = (st, er) => '<dl class="kv">' + ['dnb', 'google', 'openlibrary'].map((k) => '<dt>' + ({ dnb: 'DNB', google: 'Google Books', openlibrary: 'Open Library' }[k]) + '</dt><dd>' + esc(label[st[k]] || '–') + (er && er[k] ? ' <span class="muted small">(' + esc(er[k]) + ')</span>' : '') + '</dd>').join('') + '</dl>' +
+      '<p class="muted small">Google-Schlüssel: ' + (S.googleKey ? 'eingetragen' : 'keiner') + '</p>';
     $app.innerHTML = head({ back: '#/mehr', backLabel: 'Mehr', title: 'Datenquellen' }) +
       '<div class="card" style="padding:16px"><p class="muted small" style="margin-top:0">Fragt eine Test-ISBN bei allen drei Quellen ab. „nicht erreichbar“ bei der DNB, während die anderen gehen, heißt: Die DNB erlaubt keinen Zugriff aus dem Browser (CORS).</p>' +
       '<label class="field">Test-ISBN<input class="input" id="tisbn" inputmode="numeric" value="9783551354013"></label>' +
       '<button class="btn block" data-act="test" style="margin-top:12px">Test starten</button><div id="out" style="margin-top:14px"></div></div>' +
-      (last ? '<div class="card" style="padding:16px;margin-top:14px"><b>Letzte echte Abfrage</b><p class="muted small">' + esc(L.formatIsbn(last.isbn)) + ' · ' + new Date(last.at).toLocaleString('de-DE') + '</p>' + table(last.status) + '</div>' : '');
+      (last ? '<div class="card" style="padding:16px;margin-top:14px"><b>Letzte echte Abfrage</b><p class="muted small">' + esc(L.formatIsbn(last.isbn)) + ' · ' + new Date(last.at).toLocaleString('de-DE') + '</p>' + table(last.status, last.errors) + '</div>' : '');
     on('[data-act="test"]', 'click', async () => {
       const isbn = L.normalizeIsbn(qs('#tisbn').value);
       const out = qs('#out');
       if (!isbn) { out.textContent = 'ISBN ungültig.'; return; }
       out.innerHTML = '<p class="muted">Frage ab …</p>';
       const t0 = performance.now();
-      const r = await L.lookupIsbn(isbn);
-      out.innerHTML = table(r.status) + '<p class="small muted">Dauer: ' + Math.round(performance.now() - t0) + ' ms</p>' +
-        (r.book ? '<p><b>' + esc(r.book.title) + '</b><br>' + esc(authorStr(r.book)) + '</p>' : '<p>Kein Treffer.</p>');
+      const r = await L.lookupIsbn(isbn, { googleKey: S.googleKey });
+      out.innerHTML = table(r.status, r.errors) + '<p class="small muted">Dauer: ' + Math.round(performance.now() - t0) + ' ms</p>' +
+        (r.book ? '<p><b>' + esc(r.book.title) + '</b><br>' + esc(authorStr(r.book)) + '</p>' : '<p>Kein Treffer.</p>') +
+        '<div id="covtest"><p class="muted small">Cover-Suche läuft …</p></div>';
+      const c = await findCover(isbn);
+      const lab = { ok: 'Cover gefunden', kein: 'kein Cover', fehler: 'nicht erreichbar', aus: 'ausgeschaltet' };
+      const box = qs('#covtest');
+      if (box) box.innerHTML = '<p style="margin:12px 0 6px"><b>Cover-Quellen</b>' + (r.book && r.book.cover ? ' <span class="muted small">(Datenquelle liefert schon eins)</span>' : '') + '</p><dl class="kv">' +
+        Object.keys(COVER_LABEL).map((k) => '<dt>' + COVER_LABEL[k] + '</dt><dd>' + esc(lab[c.tried[k]] || 'nicht nötig') + '</dd>').join('') + '</dl>' +
+        (c.url ? '<div class="row" style="margin-top:10px">' + coverHtml({ title: '?', cover: c.url }) + '<span class="muted small">' + esc(COVER_LABEL[c.source]) + '</span></div>' : '');
+      hookCovers();
     });
   }
 
@@ -930,11 +1131,11 @@
   }
 
   // ---------- Router ----------
-  function route() {
+  function route(keepScroll) {
     const h = location.hash || '#/';
     if (!/^#\/scan/.test(h)) { Scanner.stop(); }
     const p = h.slice(2).split('/');
-    window.scrollTo(0, 0);
+    if (keepScroll !== true) window.scrollTo(0, 0);
     if (!p[0]) return viewHome();
     if (p[0] === 'regal' && p[1] === 'neu') return viewShelfForm(null);
     if (p[0] === 'regal' && p[2] === 'bearbeiten') return viewShelfForm(p[1]);
@@ -951,7 +1152,7 @@
     return notFound();
   }
 
-  window.addEventListener('hashchange', route);
+  window.addEventListener('hashchange', () => route());
   document.addEventListener('visibilitychange', () => { if (document.hidden) Scanner.stop(); else if (/^#\/scan/.test(location.hash) && S.scan) route(); });
 
   (async function init() {

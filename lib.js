@@ -156,7 +156,7 @@
 
   // ---------- Abfrage ----------
   const URLS = {
-    google: (isbn) => 'https://www.googleapis.com/books/v1/volumes?q=isbn:' + isbn,
+    google: (isbn, key) => 'https://www.googleapis.com/books/v1/volumes?q=isbn:' + isbn + (key ? '&key=' + encodeURIComponent(key) : ''),
     openlibrary: (isbn) => 'https://openlibrary.org/api/books?bibkeys=ISBN:' + isbn + '&format=json&jscmd=data',
     dnb: (isbn) => 'https://services.dnb.de/sru/dnb?version=1.1&operation=searchRetrieve&query=num%3D' + isbn + '&recordSchema=oai_dc&maximumRecords=1'
   };
@@ -182,9 +182,10 @@
     const f = opts.fetch || (typeof fetch !== 'undefined' ? fetch.bind(root) : null);
     const ms = opts.timeout || 8000;
     const status = {};
+    const errors = {};
     const results = {};
     const tasks = {
-      google: async () => parseGoogle(await (await fetchWithTimeout(f, URLS.google(isbn), ms)).json()),
+      google: async () => parseGoogle(await (await fetchWithTimeout(f, URLS.google(isbn, opts.googleKey), ms)).json()),
       openlibrary: async () => parseOpenLibrary(await (await fetchWithTimeout(f, URLS.openlibrary(isbn), ms)).json(), isbn),
       dnb: async () => parseDnb(await (await fetchWithTimeout(f, URLS.dnb(isbn), ms)).text(), opts.DOMParser)
     };
@@ -196,10 +197,11 @@
       } catch (e) {
         results[k] = null;
         status[k] = 'fehler';
+        errors[k] = e && e.name === 'AbortError' ? 'Zeitüberschreitung' : (e && e.message) || String(e);
       }
     }));
     const allFailed = enabled.every((k) => status[k] === 'fehler');
-    return { book: mergeResults(results), status, offline: allFailed };
+    return { book: mergeResults(results), status, errors, offline: allFailed };
   }
 
   /** Titelsuche für Bücher ohne ISBN (Google + Open Library). */
@@ -211,7 +213,7 @@
     await Promise.all([
       (async () => {
         try {
-          const j = await (await fetchWithTimeout(f, 'https://www.googleapis.com/books/v1/volumes?maxResults=8&q=' + enc, 8000)).json();
+          const j = await (await fetchWithTimeout(f, 'https://www.googleapis.com/books/v1/volumes?maxResults=8&q=' + enc + (opts.googleKey ? '&key=' + encodeURIComponent(opts.googleKey) : ''), 8000)).json();
           (j.items || []).forEach((it) => {
             const r = parseGoogle({ items: [it] });
             const ids = (it.volumeInfo.industryIdentifiers || []);

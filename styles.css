@@ -181,3 +181,13 @@ details.card summary{min-height:48px;display:flex;align-items:center;font-weight
   .labels{grid-template-columns:repeat(3,1fr)}
   .label{break-inside:avoid}
 }
+
+/* ---------- Wischen zum Löschen ---------- */
+li.swipe{position:relative;list-style:none}
+.swipe-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding-right:20px;background:#B3261E;color:#fff;font-weight:700;border-radius:var(--radius);opacity:0;transition:opacity .15s}
+li.swipe:has(> a.book[style*="translateX"]) .swipe-bg{opacity:.75}
+li.swipe.armed .swipe-bg{opacity:1}
+li.swipe > a.book{position:relative;background:var(--bg);touch-action:pan-y;-webkit-user-drag:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+[data-theme="romantasy"] li.swipe > a.book{background:var(--surface)}
+.toast{display:flex;align-items:center;gap:14px}
+.toast-btn{background:none;border:0;color:inherit;font-weight:800;text-decoration:underline;min-height:36px;padding:0 4px;cursor:pointer}

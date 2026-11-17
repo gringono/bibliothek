@@ -1,5 +1,5 @@
 /* Bibliothek – Service Worker: App offline, Cover zwischenspeichern. API-Abfragen gehen immer ins Netz. */
-const VERSION = 'bib-v0.1.1';
+const VERSION = 'bib-v0.1.4';
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'lib.js', 'db.js', 'manifest.webmanifest',
   'vendor/zxing.min.js', 'vendor/qrcode.js',
@@ -11,7 +11,7 @@ const SHELL = [
   'fonts/cinzel-latin-500-normal.woff2', 'fonts/cinzel-latin-700-normal.woff2'
 ];
 const COVER_CACHE = 'bib-covers';
-const COVER_HOSTS = ['books.google.com', 'books.googleusercontent.com', 'covers.openlibrary.org', 'archive.org'];
+const COVER_HOSTS = ['books.google.com', 'books.googleusercontent.com', 'covers.openlibrary.org', 'archive.org', 'portal.dnb.de'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
