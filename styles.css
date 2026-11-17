@@ -11,6 +11,15 @@
 @font-face{font-family:'Cormorant Garamond';font-weight:700;font-display:swap;src:url(fonts/cormorant-garamond-latin-700-normal.woff2) format('woff2')}
 @font-face{font-family:'Cinzel';font-weight:500;font-display:swap;src:url(fonts/cinzel-latin-500-normal.woff2) format('woff2')}
 @font-face{font-family:'Cinzel';font-weight:700;font-display:swap;src:url(fonts/cinzel-latin-700-normal.woff2) format('woff2')}
+@font-face{font-family:'Special Elite';font-weight:400;font-display:swap;src:url(fonts/special-elite-latin-400-normal.woff2) format('woff2')}
+@font-face{font-family:'Courier Prime';font-weight:700;font-display:swap;src:url(fonts/courier-prime-latin-700-normal.woff2) format('woff2')}
+@font-face{font-family:'Bebas Neue';font-weight:400;font-display:swap;src:url(fonts/bebas-neue-latin-400-normal.woff2) format('woff2')}
+@font-face{font-family:'Oswald';font-weight:600;font-display:swap;src:url(fonts/oswald-latin-600-normal.woff2) format('woff2')}
+@font-face{font-family:'Orbitron';font-weight:700;font-display:swap;src:url(fonts/orbitron-latin-700-normal.woff2) format('woff2')}
+@font-face{font-family:'Exo 2';font-weight:600;font-display:swap;src:url(fonts/exo-2-latin-600-normal.woff2) format('woff2')}
+@font-face{font-family:'Playfair Display';font-weight:600;font-display:swap;src:url(fonts/playfair-display-latin-600-normal.woff2) format('woff2')}
+@font-face{font-family:'Playfair Display';font-style:italic;font-weight:600;font-display:swap;src:url(fonts/playfair-display-latin-600-italic.woff2) format('woff2')}
+@font-face{font-family:'Cinzel Decorative';font-weight:700;font-display:swap;src:url(fonts/cinzel-decorative-latin-700-normal.woff2) format('woff2')}
 
 /* ---------- Themen ---------- */
 :root,[data-theme="leseecke"]{
@@ -38,12 +47,44 @@
   --title-shadow:none;--cover-border:2px solid #C9A45C;
 }
 [data-theme="fantasy"]{
-  --bg:#EFE8D6;--surface:#F8F3E6;--surface2:#E2D8BF;--line:#D6CAAC;
-  --text:#24301F;--muted:#55603F;--accent:#2F5A3E;--accent-hover:#21422D;--on-accent:#FFFFFF;
-  --pill-bg:#DDE5D0;--pill-text:#2F5A3E;--warn-bg:#F3E3BE;--warn-text:#6A4B12;
-  --font-display:'Cinzel',serif;--font-title:'Cinzel',serif;--display-size:34px;--display-weight:700;
-  --radius:8px;--shadow:0 1px 3px rgba(36,48,31,.15);
-  --title-shadow:none;--cover-border:1px solid #8C6B3E;
+  --bg:#F1EBD9;--surface:#FBF6E8;--surface2:#E6DCC0;--line:#D8C9A3;
+  --text:#23301F;--muted:#56603F;--accent:#2F6B3E;--accent-hover:#21522E;--on-accent:#FFFFFF;
+  --pill-bg:#DDE8D3;--pill-text:#2F5A3E;--warn-bg:#F3E3BE;--warn-text:#6A4B12;
+  --font-display:'Cinzel Decorative',serif;--font-title:'Cinzel',serif;--display-size:34px;--display-weight:700;
+  --radius:18px;--shadow:0 2px 0 #D8C9A3,0 4px 14px rgba(47,107,62,.12);
+  --title-shadow:0 2px 0 rgba(201,154,46,.35);--cover-border:3px double #C99A2E;
+}
+[data-theme="roman"]{
+  --bg:#FAF7F2;--surface:#FFFFFF;--surface2:#F0EBE3;--line:#E3DBCF;
+  --text:#2B2724;--muted:#6B625A;--accent:#2F5D66;--accent-hover:#234850;--on-accent:#FFFFFF;
+  --pill-bg:#E6EEF0;--pill-text:#2F5D66;--warn-bg:#F6E7D8;--warn-text:#7A4A1E;
+  --font-display:'Playfair Display',serif;--font-title:'Playfair Display',serif;--display-size:38px;--display-weight:600;
+  --radius:12px;--shadow:0 1px 2px rgba(43,39,36,.06),0 6px 18px rgba(43,39,36,.06);
+  --title-shadow:none;--cover-border:1px solid rgba(43,39,36,.15);
+}
+[data-theme="krimi"]{
+  --bg:#EAE3D2;--surface:#F5F0E3;--surface2:#DED4BD;--line:#CFC3A6;
+  --text:#262421;--muted:#5E564A;--accent:#8E2A1B;--accent-hover:#6F2014;--on-accent:#FFFFFF;
+  --pill-bg:#DED4BD;--pill-text:#3F3A33;--warn-bg:#F1D9CF;--warn-text:#7A2316;
+  --font-display:'Special Elite',monospace;--font-title:'Courier Prime',monospace;--display-size:38px;--display-weight:400;
+  --radius:4px;--shadow:0 1px 0 #CFC3A6,0 3px 8px rgba(38,36,33,.12);
+  --title-shadow:none;--cover-border:1px solid #8C8270;
+}
+[data-theme="thriller"]{
+  --bg:#0E1013;--surface:#171A1F;--surface2:#1F232A;--line:#2A2F37;
+  --text:#E8EAED;--muted:#9AA3AE;--accent:#F2C230;--accent-hover:#D9AB1C;--on-accent:#111111;
+  --pill-bg:#232830;--pill-text:#D5DAE0;--warn-bg:#3A2F0B;--warn-text:#F2C230;
+  --font-display:'Bebas Neue',sans-serif;--font-title:'Oswald',sans-serif;--display-size:56px;--display-weight:400;
+  --radius:6px;--shadow:0 2px 10px rgba(0,0,0,.5);
+  --title-shadow:none;--cover-border:1px solid #2A2F37;
+}
+[data-theme="scifi"]{
+  --bg:#070B18;--surface:#0E1530;--surface2:#142047;--line:#1E2B57;
+  --text:#E3ECFF;--muted:#8FA3C8;--accent:#39D0FF;--accent-hover:#1FB6E6;--on-accent:#04121C;
+  --pill-bg:#13224A;--pill-text:#9FE6FF;--warn-bg:#2A1640;--warn-text:#E2A6FF;
+  --font-display:'Orbitron',sans-serif;--font-title:'Exo 2',sans-serif;--display-size:30px;--display-weight:700;
+  --radius:10px;--shadow:0 0 0 1px #1E2B57,0 6px 18px rgba(0,0,0,.45);
+  --title-shadow:0 0 14px rgba(57,208,255,.55);--cover-border:1px solid #39D0FF;
 }
 
 *{box-sizing:border-box}
@@ -191,3 +232,77 @@ li.swipe > a.book{position:relative;background:var(--bg);touch-action:pan-y;-web
 [data-theme="romantasy"] li.swipe > a.book{background:var(--surface)}
 .toast{display:flex;align-items:center;gap:14px}
 .toast-btn{background:none;border:0;color:inherit;font-weight:800;text-decoration:underline;min-height:36px;padding:0 4px;cursor:pointer}
+
+/* ---------- Themen-Details ---------- */
+.decor{position:fixed;inset:0;pointer-events:none;z-index:0;display:none}
+#app{z-index:1}
+.ornament{display:none}
+[data-theme="romantasy"] .ornament,[data-theme="fantasy"] .ornament,[data-theme="krimi"] .ornament,[data-theme="thriller"] .ornament,[data-theme="scifi"] .ornament,[data-theme="roman"] .ornament{display:block;margin-top:6px}
+[data-theme="fantasy"] .display,[data-theme="scifi"] .display,[data-theme="roman"] .display{color:var(--accent)}
+[data-theme="roman"] .display{font-style:italic}
+[data-theme="scifi"] .display{text-transform:uppercase;letter-spacing:.06em}
+[data-theme="thriller"] .display{letter-spacing:.05em;color:var(--text)}
+[data-theme="thriller"] .head .display{border-bottom:4px solid var(--accent);align-self:flex-start;padding-bottom:2px}
+[data-theme="krimi"] .display{letter-spacing:.02em}
+[data-theme="krimi"] .book-title{font-size:16px}
+[data-theme="thriller"] .book-title{font-weight:600;letter-spacing:.01em}
+[data-theme="scifi"] .book-title{letter-spacing:.02em}
+[data-theme="thriller"] .btn.danger,[data-theme="scifi"] .btn.danger{color:#F29A93;border-color:#5A2A2A}
+[data-theme="thriller"] nav.tabs{background:#0A0C0F}
+[data-theme="scifi"] nav.tabs{background:#0A1024}
+[data-theme="scifi"] nav.tabs a.scan{box-shadow:0 0 22px rgba(57,208,255,.55)}
+
+/* Fantasy: verspielt */
+[data-theme="fantasy"] .decor{display:block;background:
+  radial-gradient(circle at 12% 18%,rgba(201,154,46,.10) 0 70px,transparent 71px),
+  radial-gradient(circle at 92% 80%,rgba(47,107,62,.08) 0 110px,transparent 111px)}
+.decor i{display:none}
+[data-theme="fantasy"] .decor i{display:block;position:absolute;color:#C99A2E;animation:twinkle 3.5s infinite}
+[data-theme="fantasy"] .books{gap:10px}
+[data-theme="fantasy"] .book{background:var(--surface);border-radius:18px;padding:10px 14px 10px 10px;border:1px dashed #C9A45C;box-shadow:var(--shadow)}
+[data-theme="fantasy"] li.swipe > a.book{background:var(--surface)}
+[data-theme="fantasy"] .chip[aria-pressed="true"]{box-shadow:0 0 0 2px #C99A2E inset}
+[data-theme="fantasy"] .cover{border-radius:6px}
+@keyframes twinkle{0%,100%{opacity:.25;transform:scale(.8) rotate(0)}50%{opacity:1;transform:scale(1) rotate(20deg)}}
+
+/* Krimi: Kaffeering, Akten-Optik */
+[data-theme="krimi"] .decor{display:block;background:
+  radial-gradient(circle at 10% 90%,transparent 0 46px,rgba(110,72,40,.10) 47px 52px,transparent 53px),
+  radial-gradient(circle at 12% 88%,transparent 0 40px,rgba(110,72,40,.06) 41px 44px,transparent 45px)}
+[data-theme="krimi"] .book{border-bottom:1px dashed var(--line)}
+
+/* Thriller: Scanlines */
+[data-theme="thriller"] .decor{display:block;background:repeating-linear-gradient(0deg,rgba(255,255,255,.025) 0 1px,transparent 1px 3px)}
+
+/* Science-Fiction: Sternenfeld + Raster */
+[data-theme="scifi"] .decor{display:block;background:
+  radial-gradient(1px 1px at 12% 22%,#fff,transparent),radial-gradient(1px 1px at 78% 12%,#fff,transparent),
+  radial-gradient(1.5px 1.5px at 44% 66%,#cfe8ff,transparent),radial-gradient(1px 1px at 88% 48%,#fff,transparent),
+  radial-gradient(1px 1px at 26% 84%,#fff,transparent),radial-gradient(1.5px 1.5px at 62% 34%,#9fe6ff,transparent),
+  radial-gradient(1px 1px at 6% 56%,#fff,transparent),radial-gradient(1px 1px at 94% 90%,#cfe8ff,transparent),
+  linear-gradient(rgba(57,208,255,.04) 1px,transparent 1px) 0 0/100% 40px,
+  linear-gradient(90deg,rgba(57,208,255,.04) 1px,transparent 1px) 0 0/40px 100%}
+[data-theme="scifi"] .decor{animation:starpulse 6s ease-in-out infinite}
+@keyframes starpulse{0%,100%{opacity:.75}50%{opacity:1}}
+[data-theme="scifi"] .book{border-bottom:1px solid #1E2B57}
+[data-theme="scifi"] .cover{box-shadow:0 0 10px rgba(57,208,255,.25)}
+
+/* Roman: ruhig, elegant */
+[data-theme="roman"] .book{border-bottom:1px solid var(--line)}
+
+/* ---------- Themenbilder ---------- */
+.head .art{display:block;position:absolute;top:-8px;right:-14px;width:190px;height:172px;background:no-repeat right top/contain;pointer-events:none;z-index:0;
+  -webkit-mask-image:linear-gradient(to left,#000 55%,transparent 100%);mask-image:linear-gradient(to left,#000 55%,transparent 100%)}
+.head > :not(.art){position:relative;z-index:1}
+.head.has-art{min-height:160px}
+.head.has-art > :not(.art):not(.back){max-width:58%}
+[data-theme="leseecke"] .head .art{background-image:url(img/leseecke.webp)}
+[data-theme="roman"] .head .art{background-image:url(img/roman.webp);width:230px;height:110px;top:14px}
+[data-theme="krimi"] .head .art{background-image:url(img/krimi.webp)}
+[data-theme="thriller"] .head .art{background-image:url(img/thriller.webp)}
+[data-theme="horror"] .head .art{background-image:url(img/horror.webp)}
+[data-theme="fantasy"] .head .art{background-image:url(img/fantasy.webp);width:240px;height:156px}
+[data-theme="romantasy"] .head .art{background-image:url(img/romantasy.webp)}
+[data-theme="scifi"] .head .art{background-image:url(img/scifi.webp)}
+body:has(.head.has-art) .web{display:none}
+[data-theme="romantasy"] .head.has-art .display{font-size:46px}

@@ -1,14 +1,17 @@
 /* Bibliothek – Service Worker: App offline, Cover zwischenspeichern. API-Abfragen gehen immer ins Netz. */
-const VERSION = 'bib-v0.1.6';
+const VERSION = 'bib-v0.2.0';
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'lib.js', 'db.js', 'manifest.webmanifest',
   'vendor/zxing.min.js', 'vendor/qrcode.js',
-  'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
+  'icons/icon-180.png', 'img/leseecke.webp', 'img/roman.webp', 'img/krimi.webp', 'img/thriller.webp', 'img/horror.webp', 'img/fantasy.webp', 'img/romantasy.webp', 'img/scifi.webp', 'icons/icon-192.png', 'icons/icon-512.png',
   'fonts/lora-latin-500-normal.woff2', 'fonts/lora-latin-600-normal.woff2',
   'fonts/nunito-sans-latin-400-normal.woff2', 'fonts/nunito-sans-latin-600-normal.woff2', 'fonts/nunito-sans-latin-700-normal.woff2',
   'fonts/creepster-latin-400-normal.woff2', 'fonts/crimson-pro-latin-500-normal.woff2', 'fonts/crimson-pro-latin-600-normal.woff2',
   'fonts/great-vibes-latin-400-normal.woff2', 'fonts/cormorant-garamond-latin-600-normal.woff2', 'fonts/cormorant-garamond-latin-700-normal.woff2',
-  'fonts/cinzel-latin-500-normal.woff2', 'fonts/cinzel-latin-700-normal.woff2'
+  'fonts/cinzel-latin-500-normal.woff2', 'fonts/cinzel-latin-700-normal.woff2',
+  'fonts/special-elite-latin-400-normal.woff2', 'fonts/courier-prime-latin-700-normal.woff2', 'fonts/bebas-neue-latin-400-normal.woff2',
+  'fonts/oswald-latin-600-normal.woff2', 'fonts/orbitron-latin-700-normal.woff2', 'fonts/exo-2-latin-600-normal.woff2',
+  'fonts/playfair-display-latin-600-normal.woff2', 'fonts/playfair-display-latin-600-italic.woff2', 'fonts/cinzel-decorative-latin-700-normal.woff2'
 ];
 const COVER_CACHE = 'bib-covers';
 const COVER_HOSTS = ['books.google.com', 'books.googleusercontent.com', 'covers.openlibrary.org', 'archive.org'];

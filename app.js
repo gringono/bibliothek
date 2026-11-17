@@ -2,15 +2,19 @@
 (function () {
   'use strict';
   const L = window.BibLib;
-  const APP_VERSION = '0.1.6';
+  const APP_VERSION = '0.2.0';
   const $app = document.getElementById('app');
 
-  const THEMES = { leseecke: 'Leseecke', horror: 'Horror', romantasy: 'Romantasy', fantasy: 'Fantasy' };
-  const THEME_COLOR = { leseecke: '#F6EEE3', horror: '#121013', romantasy: '#FBF0EE', fantasy: '#EFE8D6' };
+  const THEMES = { leseecke: 'Leseecke', roman: 'Romane', krimi: 'Krimi', thriller: 'Thriller', horror: 'Horror', fantasy: 'Fantasy', romantasy: 'Romantasy', scifi: 'Science-Fiction' };
+  const THEME_COLOR = { leseecke: '#F6EEE3', roman: '#FAF7F2', krimi: '#EAE3D2', thriller: '#0E1013', horror: '#121013', fantasy: '#F1EBD9', romantasy: '#FBF0EE', scifi: '#070B18' };
   const SPINES = {
     leseecke: ['#8A5A35', '#B8865B', '#5E3B22', '#C9A37A', '#7A4A2A', '#A0703F', '#4A2E1A', '#D2B48C', '#93623A', '#6B4428', '#BC8F5F', '#55351F'],
     horror: ['#2B1B1E', '#5A1A1A', '#1F2326', '#3A2F2A', '#7A1F1F', '#141414', '#4B3B33', '#2E2124', '#601C1C', '#24282B', '#3D1515', '#1A1A1D'],
     romantasy: ['#D9A3B4', '#B5739A', '#E8C4C8', '#C9A45C', '#9C7BB0', '#F0D4D8', '#7E4E6E', '#D4B5E0', '#C27C93', '#B9A06A', '#E6B9C5', '#8F6AA3'],
+    roman: ['#2F5D66', '#C9B8A3', '#7A6A5C', '#A9C2C7', '#5B4B3F', '#E3D6C5', '#3E4A57', '#B08E6E', '#8FA9AE', '#4A3C33', '#D2C2AE', '#6E8B91'],
+    krimi: ['#3F3A33', '#8E2A1B', '#6B6152', '#C2B59A', '#2B2B2B', '#9C8B6E', '#5A3A2E', '#D8CCAF', '#4A453D', '#7E1F15', '#B3A588', '#33302B'],
+    thriller: ['#1F232A', '#F2C230', '#3A404A', '#13161B', '#5B636F', '#2A2F37', '#C9A227', '#0E1013', '#454C57', '#262B33', '#8A919C', '#181B20'],
+    scifi: ['#0E1530', '#39D0FF', '#142047', '#7B5CFF', '#1E2B57', '#9FE6FF', '#0A1024', '#3A4F8F', '#1FB6E6', '#24306A', '#B9A6FF', '#101A3A'],
     fantasy: ['#2F4A3A', '#6B5A3A', '#3C5F4B', '#8C6B3E', '#1F3A30', '#A0844F', '#4D6B55', '#5B4630', '#2A4A44', '#7A6440', '#3E5A47', '#94774A']
   };
   const STATUS = [['ungelesen', 'ungelesen'], ['liest', 'liest gerade'], ['gelesen', 'gelesen'], ['abgebrochen', 'abgebrochen']];
@@ -140,7 +144,15 @@
     search: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>',
     star: (filled) => '<svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="' + (filled ? 'currentColor' : 'none') + '" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"></path></svg>',
     heart: (filled) => '<svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="' + (filled ? 'currentColor' : 'none') + '" stroke="currentColor" stroke-width="1.8"><path d="M12 21s-7.5-4.6-9.5-9.2C1 8.2 3.4 4.5 7 4.5c2.1 0 3.6 1.1 5 3 1.4-1.9 2.9-3 5-3 3.6 0 6 3.7 4.5 7.3C19.5 16.4 12 21 12 21z"></path></svg>',
-    ornament: '<svg class="ornament" aria-hidden="true" width="180" height="16" viewBox="0 0 180 16" fill="none" stroke="#C9A45C" stroke-width="1.3" stroke-linecap="round"><path d="M2 8h64"></path><path d="M114 8h64"></path><path d="M90 2c-6 0-10 6-16 6s-6-4-2-4M90 2c6 0 10 6 16 6s6-4 2-4"></path><path d="M90 14c-6 0-10-6-16-6M90 14c6 0 10-6 16-6"></path><circle cx="90" cy="8" r="2" fill="#C9A45C"></circle></svg>'
+    ornament: () => ORNAMENTS[document.body.dataset.theme] || ''
+  };
+  const ORNAMENTS = {
+    romantasy: '<svg class="ornament" aria-hidden="true" width="180" height="16" viewBox="0 0 180 16" fill="none" stroke="#C9A45C" stroke-width="1.3" stroke-linecap="round"><path d="M2 8h64"></path><path d="M114 8h64"></path><path d="M90 2c-6 0-10 6-16 6s-6-4-2-4M90 2c6 0 10 6 16 6s6-4 2-4"></path><path d="M90 14c-6 0-10-6-16-6M90 14c6 0 10-6 16-6"></path><circle cx="90" cy="8" r="2" fill="#C9A45C"></circle></svg>',
+    fantasy: '<svg class="ornament" aria-hidden="true" width="220" height="26" viewBox="0 0 220 26" fill="none" stroke="#C99A2E" stroke-width="1.4" stroke-linecap="round"><path d="M4 13c20 0 30-9 46-9s22 9 34 9"></path><path d="M216 13c-20 0-30-9-46-9s-22 9-34 9"></path><path d="M38 8c-4-5 2-8 5-4M182 8c4-5-2-8-5-4"></path><path d="M110 3l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" fill="#C99A2E"></path><circle cx="92" cy="13" r="1.6" fill="#2F6B3E"></circle><circle cx="128" cy="13" r="1.6" fill="#2F6B3E"></circle></svg>',
+    krimi: '<div class="ornament" aria-hidden="true" style="width:210px;height:14px;transform:rotate(-1.5deg);background:repeating-linear-gradient(-45deg,#E8C23A 0 10px,#262421 10px 20px);opacity:.85"></div>',
+    thriller: '<svg class="ornament" aria-hidden="true" width="200" height="24" viewBox="0 0 200 24" fill="none" stroke="#F2C230" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M2 14h70l6-10 8 18 7-14 5 6h100"></path></svg>',
+    scifi: '<svg class="ornament" aria-hidden="true" width="200" height="14" viewBox="0 0 200 14" fill="none" stroke="#39D0FF" stroke-width="1.4"><path d="M2 7h60l6-5h40l6 5h84"></path><circle cx="62" cy="7" r="2.2" fill="#39D0FF"></circle><circle cx="114" cy="7" r="2.2" fill="#39D0FF"></circle><path d="M150 7v5M160 7v5M170 7v5" stroke-opacity=".6"></path></svg>',
+    roman: '<svg class="ornament" aria-hidden="true" width="120" height="12" viewBox="0 0 120 12" fill="none" stroke="#2F5D66" stroke-width="1"><path d="M2 6h48M70 6h48"></path><path d="M60 1l5 5-5 5-5-5z" fill="#2F5D66"></path></svg>'
   };
   const ratingIcon = (filled, size) => {
     const svg = document.body.dataset.theme === 'romantasy' ? ICON.heart(filled) : ICON.star(filled);
@@ -445,10 +457,10 @@
   }
 
   function head(opts) {
-    return '<header class="head">' +
+    return '<header class="head' + (opts.art ? ' has-art' : '') + '">' + (opts.art ? '<div class="art" aria-hidden="true"></div>' : '') +
       (opts.back ? '<a class="back" href="' + esc(opts.back) + '">' + ICON.back + esc(opts.backLabel || 'Zurück') + '</a>' : '') +
       (opts.kicker ? '<p class="kicker">' + esc(opts.kicker) + '</p>' : '') +
-      '<h1 class="display">' + esc(opts.title) + '</h1>' + ICON.ornament +
+      '<h1 class="display">' + esc(opts.title) + '</h1>' + ICON.ornament() +
       (opts.sub ? '<p class="sub">' + esc(opts.sub) + '</p>' : '') + '</header>';
   }
 
@@ -464,7 +476,7 @@
     const lent = S.books.filter((b) => b.lentTo).length;
     const total = S.books.reduce((n, b) => n + (b.copies || 1), 0);
 
-    let html = head({ kicker: 'Leseecke', title: 'Meine Bibliothek' });
+    let html = head({ kicker: 'Leseecke', title: 'Meine Bibliothek', art: true });
     if (needBackup) {
       html += '<div class="banner" role="status"><div class="grow">' + since + ' neue Bücher seit der letzten Sicherung' +
         (lastBackup ? ' (' + fmtDate(lastBackup) + ')' : '') + '.</div><button class="btn small" data-act="backup">Sichern</button></div>';
@@ -505,7 +517,7 @@
     };
     list.sort(sorters[st.sort] || sorters.pos);
 
-    let html = head({ back: '#/', backLabel: 'Bibliothek', title: s.name, sub: [s.room, THEMES[s.theme], total + (total === 1 ? ' Buch' : ' Bücher')].filter(Boolean).join(' · ') });
+    let html = head({ art: true, back: '#/', backLabel: 'Bibliothek', title: s.name, sub: [s.room, THEMES[s.theme], total + (total === 1 ? ' Buch' : ' Bücher')].filter(Boolean).join(' · ') });
     if (s.fachCount > 0) {
       const chips = [['alle', 'Alle']];
       for (let i = 1; i <= s.fachCount; i++) chips.push([String(i), 'Fach ' + i]);
