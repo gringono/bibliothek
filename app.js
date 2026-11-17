@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const L = window.BibLib;
-  const APP_VERSION = '0.1.0';
+  const APP_VERSION = '0.1.1';
   const $app = document.getElementById('app');
 
   const THEMES = { leseecke: 'Leseecke', horror: 'Horror', romantasy: 'Romantasy', fantasy: 'Fantasy' };
@@ -416,7 +416,9 @@
     const s = shelfById(b.shelfId);
     setTheme(s ? s.theme : 'leseecke'); setTab('home');
     let html = '<header class="head"><a class="back" href="' + (s ? '#/regal/' + esc(s.id) : '#/') + '">' + ICON.back + esc(s ? s.name : 'Bibliothek') + '</a></header>';
-    html += '<div class="detail-top">' + coverHtml(b, true) + '<div class="grow"><h1 class="book-title" style="font-size:24px;-webkit-line-clamp:4">' + esc(b.title || 'ISBN ' + L.formatIsbn(b.isbn)) + '</h1>' +
+    html += '<div class="detail-top"><div style="display:flex;flex-direction:column;gap:8px;align-items:center">' + coverHtml(b, true) +
+      '<label class="btn small ghost" style="cursor:pointer;padding:0 12px">Cover-Foto<input type="file" id="coverfile" accept="image/*" class="sr-only"></label>' +
+      (b.cover ? '<button type="button" class="linkbtn small" data-act="nocover" style="min-height:32px">entfernen</button>' : '') + '</div><div class="grow"><h1 class="book-title" style="font-size:24px;-webkit-line-clamp:4">' + esc(b.title || 'ISBN ' + L.formatIsbn(b.isbn)) + '</h1>' +
       (b.subtitle ? '<p class="muted" style="margin:4px 0 0">' + esc(b.subtitle) + '</p>' : '') +
       '<p style="margin:8px 0 0;font-weight:600">' + esc(authorStr(b) || '–') + '</p>' +
       '<p class="muted small" style="margin:4px 0 0">' + esc([b.year, b.pages ? b.pages + ' Seiten' : ''].filter(Boolean).join(' · ')) + '</p>' +
@@ -436,7 +438,8 @@
     const fachOpts = (sh) => { let o = '<option value="0">ohne Fach</option>'; for (let i = 1; i <= ((sh && sh.fachCount) || 0); i++) o += '<option value="' + i + '"' + (b.fach === i ? ' selected' : '') + '>Fach ' + i + '</option>'; return o; };
     html += '<div class="card" style="padding:14px 16px"><div class="form">' +
       '<label class="field">Regal<select class="input" id="mv-shelf"><option value="">ohne Regal</option>' + S.shelves.map((x) => '<option value="' + esc(x.id) + '"' + (x.id === b.shelfId ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' +
-      '<div class="row"><label class="field grow">Fach<select class="input" id="mv-fach">' + fachOpts(s) + '</select></label>' +
+      (s && !s.fachCount ? '<p class="muted small" style="margin:0">Dieses Regal hat keine Fächer. <a href="#/regal/' + esc(s.id) + '/bearbeiten">Fächer einrichten</a></p>' : '') +
+      '<div class="row"><label class="field grow">Fach<select class="input" id="mv-fach"' + (s && s.fachCount ? '' : ' disabled') + '>' + fachOpts(s) + '</select></label>' +
       '<label class="field" style="width:96px">Platz<input class="input" id="mv-pos" type="number" inputmode="numeric" min="1" value="' + (b.pos || '') + '"></label></div>' +
       '<div class="row"><span class="grow muted small">Exemplare</span><button class="btn small ghost" data-copies="-1" aria-label="Ein Exemplar weniger">−</button><b id="copies" style="min-width:24px;text-align:center">' + (b.copies || 1) + '</b><button class="btn small ghost" data-copies="1" aria-label="Ein Exemplar mehr">+</button></div>' +
       '</div></div>';
@@ -451,7 +454,7 @@
       '<label class="field">Autor(en), mit Komma getrennt<input class="input" name="authors" value="' + esc(authorStr(b)) + '"></label>' +
       '<div class="row"><label class="field grow">Verlag<input class="input" name="publisher" value="' + esc(b.publisher) + '"></label><label class="field" style="width:96px">Jahr<input class="input" name="year" inputmode="numeric" value="' + esc(b.year) + '"></label></div>' +
       '<label class="field">ISBN<input class="input" name="isbn" inputmode="numeric" value="' + esc(b.isbn) + '"></label>' +
-      '<label class="field">Cover-Adresse (URL)<input class="input" name="cover" value="' + esc(b.cover) + '"></label>' +
+      '<label class="field">Cover-Adresse (URL)<input class="input" name="cover" value="' + esc(/^data:/.test(b.cover) ? '' : b.cover) + '" placeholder="' + (/^data:/.test(b.cover) ? 'eigenes Foto gespeichert' : 'https://…') + '"></label>' +
       '<button class="btn block" type="submit">Daten speichern</button>' +
       '<button class="btn ghost block" type="button" data-act="titlesearch">Online nach Titel suchen</button>' +
       (b.isbn ? '<button class="btn ghost block" type="button" data-act="relookup">ISBN erneut abfragen</button>' : '') +
@@ -485,10 +488,22 @@
         title, subtitle: String(fd.get('subtitle')).trim(),
         authors: String(fd.get('authors')).split(',').map((x) => x.trim()).filter(Boolean),
         publisher: String(fd.get('publisher')).trim(), year: String(fd.get('year')).trim(),
-        isbn: isbn || '', cover: String(fd.get('cover')).trim(), needsReview: !title
+        isbn: isbn || '', cover: String(fd.get('cover')).trim() || (/^data:/.test(b.cover) ? b.cover : ''), needsReview: !title
       });
       toast('Gespeichert');
     });
+    on('#coverfile', 'change', async (e) => {
+      const f = e.currentTarget.files && e.currentTarget.files[0];
+      if (!f) return;
+      try {
+        const data = await shrinkImage(f, 360, 0.8);
+        await upd({ cover: data });
+        toast('Cover gespeichert');
+      } catch (err) {
+        toast('Bild konnte nicht gelesen werden');
+      }
+    });
+    on('[data-act="nocover"]', 'click', () => upd({ cover: '' }));
     on('[data-act="relookup"]', 'click', () => { b.needsLookup = true; saveBook(b).then(() => { Lookup.add(b.id); toast('Wird abgefragt …'); }); });
     on('[data-act="titlesearch"]', 'click', () => {
       const q = [qs('#edit [name="title"]').value, qs('#edit [name="authors"]').value].join(' ').trim();
@@ -505,6 +520,25 @@
       if (!confirm('„' + (b.title || b.isbn) + '“ wirklich löschen?')) return;
       await deleteBook(id);
       location.hash = s ? '#/regal/' + s.id : '#/';
+    });
+  }
+
+  /** Foto verkleinern (max. Höhe px) und als JPEG-Daten-URL zurückgeben (~20–40 KB). */
+  function shrinkImage(file, maxH, quality) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxH / img.naturalHeight);
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.naturalWidth * scale);
+        c.height = Math.round(img.naturalHeight * scale);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        resolve(c.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Bild')); };
+      img.src = url;
     });
   }
 
@@ -576,6 +610,7 @@
         html += '<div class="chips" role="group" aria-label="Fach" style="margin-top:10px">' + ['ohne Fach'].concat(Array.from({ length: shelf.fachCount }, (_, i) => 'Fach ' + (i + 1)))
           .map((l, i) => '<button type="button" class="chip" data-scfach="' + i + '" aria-pressed="' + (sc.fach === i) + '">' + l + '</button>').join('') + '</div>';
       }
+      if (shelf && !shelf.fachCount) html += '<p class="muted small" style="margin:8px 0 0">Ohne Fächer. <a href="#/regal/' + esc(shelf.id) + '/bearbeiten">Fächer einrichten</a></p>';
       if (shelf) html += '<p class="muted small" style="margin:8px 0 0" id="nextpos">Nächstes Buch: Platz ' + nextPos(shelf.id, sc.fach) + ' – immer am selben Ende anfangen.</p>';
       html += '</div>';
     } else {
