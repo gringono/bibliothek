@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const L = window.BibLib;
-  const APP_VERSION = '0.1.4';
+  const APP_VERSION = '0.1.5';
   const $app = document.getElementById('app');
 
   const THEMES = { leseecke: 'Leseecke', horror: 'Horror', romantasy: 'Romantasy', fantasy: 'Fantasy' };
@@ -150,7 +150,6 @@
   // ---------- Daten ----------
   async function load() {
     S.googleKey = await DB.getMeta('googleKey', '');
-    S.vlbCovers = await DB.getMeta('vlbCovers', false);
     S.shelves = (await DB.all('shelves')).sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true }));
     S.books = await DB.all('books');
   }
@@ -230,23 +229,18 @@
       const url = e.thumbnail_url.replace(/^http:/, 'https:').replace(/zoom=\d/, 'zoom=1').replace('&edge=curl', '');
       return (await probeImage(url)) ? url : '';
     },
-    vlb: async (isbn) => {
-      const url = 'https://portal.dnb.de/opac/mvb/cover?isbn=' + isbn;
-      return (await probeImage(url)) ? url : '';
-    },
     openlibrary: async (isbn) => {
       const url = 'https://covers.openlibrary.org/b/isbn/' + isbn + '-M.jpg?default=false';
       return (await probeImage(url)) ? url : '';
     }
   };
-  const COVER_LABEL = { googlebild: 'Google (Bild, ohne Schlüssel)', vlb: 'VLB über DNB', openlibrary: 'Open Library' };
+  const COVER_LABEL = { googlebild: 'Google (Bild, ohne Schlüssel)', openlibrary: 'Open Library' };
 
   /** Sucht ein Cover über die ISBN. Rückgabe { url, source, tried: {quelle: 'ok'|'kein'|'fehler'|'aus'} }. */
   async function findCover(isbn) {
     const tried = {};
-    const order = ['googlebild', 'vlb', 'openlibrary'];
+    const order = ['googlebild', 'openlibrary'];
     for (const k of order) {
-      if (k === 'vlb' && !S.vlbCovers) { tried[k] = 'aus'; continue; }
       try {
         const url = await COVER_SOURCES[k](isbn);
         tried[k] = url ? 'ok' : 'kein';
@@ -581,6 +575,7 @@
     let html = '<header class="head"><a class="back" href="' + (s ? '#/regal/' + esc(s.id) : '#/') + '">' + ICON.back + esc(s ? s.name : 'Bibliothek') + '</a></header>';
     html += '<div class="detail-top"><div style="display:flex;flex-direction:column;gap:8px;align-items:center">' + coverHtml(b, true) +
       '<label class="btn small ghost" style="cursor:pointer;padding:0 12px">Cover-Foto<input type="file" id="coverfile" accept="image/*" class="sr-only"></label>' +
+      '<a class="btn small ghost" style="padding:0 12px" target="_blank" rel="noopener" href="' + esc(coverSearchUrl(b)) + '">Im Web suchen</a>' +
       (b.cover ? '<button type="button" class="linkbtn small" data-act="nocover" style="min-height:32px">entfernen</button>' : '') + '</div><div class="grow"><h1 class="book-title" style="font-size:24px;-webkit-line-clamp:4">' + esc(b.title || 'ISBN ' + L.formatIsbn(b.isbn)) + '</h1>' +
       (b.subtitle ? '<p class="muted" style="margin:4px 0 0">' + esc(b.subtitle) + '</p>' : '') +
       '<p style="margin:8px 0 0;font-weight:600">' + esc(authorStr(b) || '–') + '</p>' +
@@ -684,6 +679,12 @@
       await deleteBook(id);
       location.hash = s ? '#/regal/' + s.id : '#/';
     });
+  }
+
+  /** Google-Bildersuche nach dem Cover (Titel + Autor, sonst ISBN). */
+  function coverSearchUrl(b) {
+    const q = b.title ? [b.title, authorStr(b), 'Buch Cover'].filter(Boolean).join(' ') : (b.isbn + ' Buch Cover');
+    return 'https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(q);
   }
 
   /** Foto verkleinern (max. Höhe px) und als JPEG-Daten-URL zurückgeben (~20–40 KB). */
@@ -992,7 +993,7 @@
       '</section>' +
       '<section class="card" style="padding:16px"><h2 style="font-family:var(--font-title);font-size:18px">Cover</h2>' +
       '<p class="muted small">Fehlt ein Cover, sucht die App automatisch weiter: Google-Bild (ohne Schlüssel), dann Open Library.</p>' +
-      '<label class="row" style="gap:10px;min-height:44px;cursor:pointer"><input type="checkbox" id="vlb" style="width:22px;height:22px;accent-color:var(--accent)"' + (S.vlbCovers ? ' checked' : '') + '><span class="grow"><b>VLB-Cover über die DNB</b><br><span class="muted small">Beste Abdeckung für deutsche Bücher. Nutzung ist nur für Bibliotheken vereinbart, für den privaten Gebrauch auf eigenes Risiko.</span></span></label>' +
+      '<p class="muted small">Findet keine Quelle ein Cover: in der Buchansicht „Im Web suchen“, Bild lange drücken → „Zu Fotos hinzufügen“, dann „Cover-Foto“.</p>' +
       (noCover ? '<button class="btn ghost block" data-act="covers" style="margin-top:12px">Fehlende Cover nachladen (' + noCover + ')</button>' : '<p class="muted small" style="margin-bottom:0">Alle Bücher mit ISBN haben ein Cover.</p>') + '</section>' +
       '<a class="card row" href="#/nacharbeiten" style="padding:14px 16px;text-decoration:none;color:var(--text)"><span class="grow">Nacharbeiten</span><span class="pill' + (review ? ' warn' : '') + '">' + review + '</span>' + ICON.chevron + '</a>' +
       '<a class="card row" href="#/buch/neu" style="padding:14px 16px;text-decoration:none;color:var(--text)"><span class="grow">Buch ohne ISBN hinzufügen</span>' + ICON.chevron + '</a>' +
@@ -1005,11 +1006,6 @@
       S.googleKey = qs('#gk').value.trim();
       await DB.setMeta('googleKey', S.googleKey);
       toast(S.googleKey ? 'Schlüssel gespeichert – jetzt „Datenquellen testen“' : 'Schlüssel entfernt');
-    });
-    on('#vlb', 'change', async (e) => {
-      S.vlbCovers = e.currentTarget.checked;
-      await DB.setMeta('vlbCovers', S.vlbCovers);
-      toast(S.vlbCovers ? 'VLB-Cover eingeschaltet' : 'VLB-Cover ausgeschaltet');
     });
     on('[data-act="covers"]', 'click', () => {
       const list = S.books.filter((b) => !b.cover && b.isbn);
