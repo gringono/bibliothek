@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const L = window.BibLib;
-  const APP_VERSION = '0.2.4';
+  const APP_VERSION = '0.2.5';
   const $app = document.getElementById('app');
 
   const THEMES = { leseecke: 'Leseecke', roman: 'Romane', krimi: 'Krimi', thriller: 'Thriller', horror: 'Horror', fantasy: 'Fantasy', romantasy: 'Romantasy', scifi: 'Science-Fiction' };
@@ -942,8 +942,7 @@
     const sc = S.scan = S.scan && S.scan.mode === mode ? S.scan : { mode, shelfId: '', fach: 0, log: [], running: false };
     if (shelfId) { sc.shelfId = shelfId; sc.fach = 0; }
     if (!find && !sc.shelfId && S.shelves.length) sc.shelfId = S.shelves[0].id;
-    const shelf = shelfById(sc.shelfId);
-    setTheme(shelf && !find ? shelf.theme : 'leseecke');
+    setTheme('leseecke');   // Scan-Seite ist neutral; das Regal wird erst im Fenster gewählt
 
     let html = head({ back: '#/', backLabel: 'Bibliothek', title: find ? 'Nachschlagen' : 'Bücher erfassen' });
     if (!find && !S.shelves.length) {
@@ -1070,7 +1069,6 @@
     await bumpBackupCounter(1);
     sc.shelfId = b.shelfId; sc.fach = b.fach;
     const sh = shelfById(b.shelfId);
-    if (sh && /^#\/scan/.test(location.hash)) setTheme(sh.theme);
     logEntry({ key: 'B' + b.id, state: b.needsLookup ? 'laedt' : 'ok', bookId: b.id, info: shelfLabel(sh) + (b.fach ? ' · Fach ' + b.fach : '') + ' · Platz ' + b.pos });
     closeSheet();
     if (b.needsLookup) Lookup.add(b.id);
@@ -1148,7 +1146,6 @@
       if (sc.mode === 'finden') { Scanner.stop(); location.hash = '#/regal/' + sh.id; return; }
       if (sc.shelfId !== sh.id) {
         sc.shelfId = sh.id; sc.fach = 0;
-        setTheme(sh.theme);
         logEntry({ key: 'R' + Date.now(), state: 'regal', title: sh.name, info: 'ist jetzt vorgewählt' });
       }
       return;
