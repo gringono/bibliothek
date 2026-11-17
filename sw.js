@@ -1,5 +1,5 @@
 /* Bibliothek – Service Worker: App offline, Cover zwischenspeichern. API-Abfragen gehen immer ins Netz. */
-const VERSION = 'bib-v0.2.0';
+const VERSION = 'bib-v0.2.2';
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'lib.js', 'db.js', 'manifest.webmanifest',
   'vendor/zxing.min.js', 'vendor/qrcode.js',

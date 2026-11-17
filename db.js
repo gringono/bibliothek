@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   const DB_NAME = 'bibliothek';
-  const VERSION = 1;
+  const VERSION = 2;
   let dbp = null;
 
   function open() {
@@ -18,6 +18,7 @@
           s.createIndex('shelfId', 'shelfId', { unique: false });
         }
         if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
+        if (!db.objectStoreNames.contains('series')) db.createObjectStore('series', { keyPath: 'id' });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);

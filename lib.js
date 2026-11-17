@@ -118,12 +118,61 @@
       authors: creators,
       publisher: (all('publisher')[0] || '').replace(/^.*?:\s*/, ''),
       year: yearOf(all('date')[0]),
-      pages: null,
+      pages: (() => { const m = all('format').join(' ').match(/(\d{2,5})\s*S(?:eiten|\.)/); return m ? +m[1] : null; })(),
       language: (all('language')[0] || '').slice(0, 3),
       cover: '',
       description: '',
       categories: []
     };
+  }
+
+  /**
+   * DNB MARC21-xml: Reihe + Bandnummer (490/800/830) und Seitenzahl (300).
+   * Rückgabe { series: [{name, volume}], pages } oder null.
+   */
+  function parseDnbMarc(xmlText, DOMParserImpl) {
+    const P = DOMParserImpl || (typeof DOMParser !== 'undefined' ? DOMParser : null);
+    if (!P || !xmlText) return null;
+    const doc = new P().parseFromString(xmlText, 'application/xml');
+    const n = doc.getElementsByTagNameNS('*', 'numberOfRecords')[0];
+    if (n && +n.textContent === 0) return null;
+    const fields = Array.from(doc.getElementsByTagNameNS('*', 'datafield'));
+    const sub = (f, code) => {
+      const s = Array.from(f.getElementsByTagNameNS('*', 'subfield')).find((x) => x.getAttribute('code') === code);
+      return s ? s.textContent.trim() : '';
+    };
+    const clean = (s) => s.replace(/\s*[;:,./]+\s*$/, '').replace(/^\s*[;:,./]+\s*/, '').trim();
+    const vol = (v) => {
+      const m = String(v || '').match(/(\d+(?:[.,]\d+)?)/);
+      if (!m) return null;
+      const x = parseFloat(m[1].replace(',', '.'));
+      return x > 0 && x < 200 ? x : null;   // große Zahlen = Verlagsnummern, keine Bände
+    };
+    const series = [];
+    const add = (name, v) => {
+      name = clean(name);
+      const volume = vol(v);
+      if (!name || volume == null) return;
+      if (!series.some((s) => s.name.toLowerCase() === name.toLowerCase())) series.push({ name, volume });
+    };
+    fields.filter((f) => ['800', '810', '830'].includes(f.getAttribute('tag'))).forEach((f) => add(sub(f, 't') || sub(f, 'a'), sub(f, 'v')));
+    fields.filter((f) => f.getAttribute('tag') === '490').forEach((f) => add(sub(f, 'a'), sub(f, 'v')));
+    let pages = null;
+    const f300 = fields.find((f) => f.getAttribute('tag') === '300');
+    if (f300) { const m = sub(f300, 'a').match(/(\d{2,5})\s*S(?:eiten|\.)/); if (m) pages = +m[1]; }
+    return { series, pages };
+  }
+
+  async function lookupSeries(isbn, opts) {
+    opts = opts || {};
+    const f = opts.fetch || (typeof fetch !== 'undefined' ? fetch.bind(root) : null);
+    const url = 'https://services.dnb.de/sru/dnb?version=1.1&operation=searchRetrieve&query=num%3D' + isbn + '&recordSchema=MARC21-xml&maximumRecords=1';
+    try {
+      const res = await fetchWithTimeout(f, url, opts.timeout || 8000);
+      return parseDnbMarc(await res.text(), opts.DOMParser);
+    } catch (e) {
+      return null;
+    }
   }
 
   /** Bestes aus allen Quellen: Titel/Autor bevorzugt DNB, Cover Google/OL. */
@@ -245,7 +294,7 @@
 
   const api = {
     cleanIsbn, normalizeIsbn, isValidIsbn13, isValidIsbn10, isbn10to13, formatIsbn,
-    parseGoogle, parseOpenLibrary, parseDnb, mergeResults, lookupIsbn, searchByTitle,
+    parseGoogle, parseOpenLibrary, parseDnb, parseDnbMarc, lookupSeries, mergeResults, lookupIsbn, searchByTitle,
     flipName, yearOf, URLS
   };
   root.BibLib = api;

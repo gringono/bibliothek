@@ -147,7 +147,8 @@ textarea.input{min-height:90px;resize:vertical}
 
 /* ---------- Statistik ---------- */
 .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px}
-.stat{display:flex;flex-direction:column;padding:12px;background:var(--surface2);border-radius:12px}
+.stat{display:flex;flex-direction:column;padding:12px;background:var(--surface2);border-radius:12px;text-decoration:none;color:var(--text)}
+.stat:active{filter:brightness(.95)}
 .stat b{font-family:var(--font-title);font-size:22px;font-weight:600}
 .stat span{font-size:13px;color:var(--muted)}
 
@@ -306,3 +307,18 @@ li.swipe > a.book{position:relative;background:var(--bg);touch-action:pan-y;-web
 [data-theme="scifi"] .head .art{background-image:url(img/scifi.webp)}
 body:has(.head.has-art) .web{display:none}
 [data-theme="romantasy"] .head.has-art .display{font-size:46px}
+
+/* ---------- Reihenübersicht ---------- */
+.vol-legend{display:flex;flex-wrap:wrap;gap:6px 10px;margin:4px 0 14px;font-size:12px}
+.series-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;counter-reset:sr}
+.series-row{padding:12px 14px;counter-increment:sr}
+.series-title{display:block;color:var(--text);text-decoration:none;font-size:15px;line-height:1.35}
+.series-title::before{content:counter(sr) ". ";font-weight:700;color:var(--muted)}
+.vols{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center}
+.vol{display:inline-flex;align-items:center;gap:3px;min-height:30px;padding:0 8px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none;
+  background:var(--surface2);color:var(--text);border:1px solid var(--line)}
+.vol.owned svg{color:var(--muted)}
+.vol.read{background:#E6F2E7;border-color:#B9DABC;color:#1E4F22}
+.vol.reading{background:#FBEBD3;border-color:#EFC98E;color:#6A3F00}
+.vol.missing{background:transparent;color:var(--muted);opacity:.55;border-style:dashed}
+.vol-legend .vol{min-height:24px;font-weight:600}

@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const L = window.BibLib;
-  const APP_VERSION = '0.2.0';
+  const APP_VERSION = '0.2.2';
   const $app = document.getElementById('app');
 
   const THEMES = { leseecke: 'Leseecke', roman: 'Romane', krimi: 'Krimi', thriller: 'Thriller', horror: 'Horror', fantasy: 'Fantasy', romantasy: 'Romantasy', scifi: 'Science-Fiction' };
@@ -28,6 +28,8 @@
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const uid = () => Math.random().toString(36).slice(2, 10).toUpperCase();
   const now = () => new Date().toISOString();
+  const todayIso = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  const fmtNum = (n) => Number(n || 0).toLocaleString('de-DE');
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('de-DE') : '';
   const qs = (sel) => $app.querySelector(sel);
   const qsa = (sel) => Array.from($app.querySelectorAll(sel));
@@ -164,6 +166,7 @@
     S.googleKey = await DB.getMeta('googleKey', '');
     S.shelves = (await DB.all('shelves')).sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true }));
     S.books = await DB.all('books');
+    S.series = (await DB.all('series')).sort((a, b) => a.name.localeCompare(b.name, 'de'));
   }
 
   async function saveBook(b) {
@@ -181,6 +184,50 @@
     S.shelves.sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true }));
   }
 
+  async function saveSeries(sr) {
+    await DB.put('series', sr);
+    const i = S.series.findIndex((x) => x.id === sr.id);
+    if (i >= 0) S.series[i] = sr; else S.series.push(sr);
+    S.series.sort((a, b) => a.name.localeCompare(b.name, 'de'));
+    return sr;
+  }
+  const seriesById = (id) => S.series.find((x) => x.id === id);
+  const seriesByName = (name) => S.series.find((x) => x.name.trim().toLowerCase() === String(name || '').trim().toLowerCase());
+  const fmtVol = (v) => String(v).replace('.', ',');
+
+  /** Kennzahlen einer Reihe: Bände 1..n plus vorhandene Sonderbände. */
+  function seriesInfo(sr) {
+    const books = S.books.filter((b) => b.seriesId === sr.id);
+    const withVol = books.filter((b) => b.volume != null);
+    const maxOwned = withVol.reduce((m, b) => Math.max(m, Math.floor(b.volume)), 0);
+    const total = sr.total || maxOwned;
+    const vols = new Set();
+    for (let i = 1; i <= total; i++) vols.add(i);
+    withVol.forEach((b) => vols.add(b.volume));
+    const rows = Array.from(vols).sort((a, b) => a - b).map((v) => {
+      const own = withVol.filter((b) => b.volume === v);
+      return { volume: v, books: own, owned: own.length > 0, read: own.some((b) => b.status === 'gelesen'), reading: own.some((b) => b.status === 'liest') };
+    });
+    return {
+      books, rows, noVolume: books.filter((b) => b.volume == null), totalKnown: !!sr.total, total: rows.length,
+      owned: rows.filter((r) => r.owned).length, read: rows.filter((r) => r.read).length,
+      missing: rows.filter((r) => !r.owned).length, reading: rows.filter((r) => r.reading).length
+    };
+  }
+
+  /** Buch einer Reihe zuordnen; legt die Reihe bei Bedarf an. */
+  async function assignSeries(b, name, volume) {
+    name = String(name || '').trim();
+    if (!name) return;
+    let sr = seriesByName(name);
+    if (!sr) sr = await saveSeries({ id: uid() + uid(), name, author: authorStr(b), total: null, createdAt: now() });
+    b.seriesId = sr.id;
+    b.volume = volume != null && !isNaN(volume) ? volume : null;
+    b.seriesHint = null;
+    await saveBook(b);
+    return sr;
+  }
+
   async function deleteBook(id) {
     await DB.del('books', id);
     S.books = S.books.filter((b) => b.id !== id);
@@ -196,7 +243,7 @@
     return Object.assign({
       id: uid() + uid(), isbn: '', title: '', subtitle: '', authors: [], publisher: '', year: '', pages: null,
       language: '', cover: '', description: '', categories: [], sources: [],
-      shelfId: '', fach: 0, pos: null, status: 'ungelesen', rating: 0, lentTo: '', lentSince: '',
+      shelfId: '', fach: 0, pos: null, status: 'ungelesen', rating: 0,
       notes: '', copies: 1, needsLookup: false, needsReview: false, addedAt: now(), updatedAt: now()
     }, fields);
   }
@@ -305,6 +352,20 @@
         cur.needsLookup = true; outcome = 'offline';
       } else {
         cur.needsLookup = false; cur.needsReview = true; outcome = 'leer';
+      }
+      if (cur.isbn && !r.offline && !cur.seriesId && !cur.seriesHintDone) {
+        try {
+          const m = await L.lookupSeries(cur.isbn);
+          if (m) {
+            if (!cur.pages && m.pages) cur.pages = m.pages;
+            const hint = m.series[0];
+            if (hint) {
+              const sr = seriesByName(hint.name);
+              if (sr) { cur.seriesId = sr.id; cur.volume = hint.volume; }
+              else cur.seriesHint = hint;
+            }
+          }
+        } catch (e) { /* Reihe ist optional */ }
       }
       if (!cur.cover && cur.isbn && !r.offline) {
         try {
@@ -437,12 +498,11 @@
     if (b.fach) where.push('Fach ' + b.fach);
     if (b.pos) where.push('Platz ' + b.pos);
     let pill = '<span class="pill">' + esc(STATUS_LABEL[b.status] || b.status) + '</span>';
-    if (b.lentTo) pill = '<span class="pill warn">verliehen</span>';
     if (b.needsLookup) pill = '<span class="pill warn">Daten fehlen</span>';
     else if (b.needsReview) pill = '<span class="pill warn">prüfen</span>';
     return '<li class="swipe"><div class="swipe-bg" aria-hidden="true">' + ICON.trash + 'Löschen</div><a class="book" draggable="false" data-id="' + esc(b.id) + '" href="#/buch/' + esc(b.id) + '">' + coverHtml(b) +
       '<div class="grow"><div class="book-title">' + esc(b.title || ('ISBN ' + L.formatIsbn(b.isbn))) + '</div>' +
-      '<div class="muted small">' + esc(authorStr(b) || '–') + (b.copies > 1 ? ' · ' + b.copies + ' Exemplare' : '') + '</div>' +
+      '<div class="muted small">' + esc(authorStr(b) || '–') + (b.seriesId && seriesById(b.seriesId) ? ' · ' + esc(seriesById(b.seriesId).name) + (b.volume != null ? ' ' + fmtVol(b.volume) : '') : '') + (b.copies > 1 ? ' · ' + b.copies + ' Exemplare' : '') + '</div>' +
       '<div class="book-meta">' + pill + ratingHtml(b.rating) + '<span class="muted small">' + esc(where.join(' · ')) + '</span></div></div></a></li>';
   }
 
@@ -473,7 +533,7 @@
     const needBackup = S.books.length > 0 && (since >= BACKUP_EVERY || (since > 0 && days > BACKUP_DAYS));
     const review = S.books.filter((b) => b.needsReview || b.needsLookup).length;
     const read = S.books.filter((b) => b.status === 'gelesen').length;
-    const lent = S.books.filter((b) => b.lentTo).length;
+    const unread = S.books.filter((b) => b.status === 'ungelesen').length;
     const total = S.books.reduce((n, b) => n + (b.copies || 1), 0);
 
     let html = head({ kicker: 'Leseecke', title: 'Meine Bibliothek', art: true });
@@ -485,7 +545,13 @@
       html += '<a class="banner" href="#/nacharbeiten" style="text-decoration:none"><div class="grow">' + review + (review === 1 ? ' Buch muss' : ' Bücher müssen') + ' nachgearbeitet werden.</div>' + ICON.chevron + '</a>';
     }
     html += '<a class="search" href="#/suche" style="text-decoration:none;color:var(--muted)">' + ICON.search + '<span>Titel, Autor oder ISBN</span></a>';
-    html += '<div class="stats"><div class="stat"><b>' + total + '</b><span>Bücher</span></div><div class="stat"><b>' + read + '</b><span>gelesen</span></div><div class="stat"><b>' + lent + '</b><span>verliehen</span></div></div>';
+    const statsLink = '<a class="card row" href="#/statistik" style="padding:12px 16px;margin-top:10px;text-decoration:none;color:var(--text)"><span class="grow"><b>Lesestatistik</b> <span class="muted small">· ' + monthLabel(todayIso().slice(0, 7)) + ': ' + readIn(todayIso().slice(0, 7)).length + ' gelesen</span></span>' + ICON.chevron + '</a>';
+    html += '<div class="stats">' +
+      '<a class="stat" href="#/buecher/alle"><b>' + total + '</b><span>Bücher</span></a>' +
+      '<a class="stat" href="#/buecher/gelesen"><b>' + read + '</b><span>gelesen</span></a>' +
+      '<a class="stat" href="#/buecher/ungelesen"><b>' + unread + '</b><span>ungelesen</span></a></div>' + statsLink +
+      '<a class="card row" href="#/reihen" style="padding:12px 16px;margin-top:10px;text-decoration:none;color:var(--text)"><span class="grow"><b>Reihen</b> <span class="muted small">· ' + S.series.length + (S.series.length === 1 ? ' Reihe' : ' Reihen') + '</span></span>' +
+      (S.books.some((b) => b.seriesHint && !b.seriesId) ? '<span class="pill warn">Vorschläge</span>' : '') + ICON.chevron + '</a>';
     html += '<div class="section-head"><h2>Regale</h2><a class="linkbtn" href="#/regal/neu" style="text-decoration:none;display:inline-flex;align-items:center">+ Regal anlegen</a></div>';
     if (!S.shelves.length) {
       html += '<div class="card empty"><p>Noch keine Regale.</p><a class="btn" href="#/regal/neu">Erstes Regal anlegen</a></div>';
@@ -598,12 +664,29 @@
 
     html += '<div class="stack" style="margin-top:20px">';
     html += '<div class="seg" role="group" aria-label="Lesestatus">' + STATUS.map(([v, l]) => '<button type="button" data-status="' + v + '" aria-pressed="' + (b.status === v) + '">' + l + '</button>').join('') + '</div>';
+    if (b.status === 'gelesen') {
+      html += '<label class="row card" style="padding:10px 16px;gap:12px"><span class="grow" style="font-weight:700">Gelesen am</span>' +
+        '<input type="date" id="finished" class="input" style="width:auto;min-height:40px" max="' + todayIso() + '" value="' + esc(b.finishedAt || '') + '"></label>';
+    }
     html += '<div class="stars" role="group" aria-label="Bewertung">' + [1, 2, 3, 4, 5].map((i) => '<button type="button" data-rate="' + i + '" aria-label="' + i + ' von 5" aria-pressed="' + (b.rating >= i) + '">' + ratingIcon(b.rating >= i) + '</button>').join('') + '</div>';
 
-    // Ausleihe
-    html += '<div class="card" style="padding:14px 16px">' + (b.lentTo
-      ? '<div class="row"><div class="grow"><b>Verliehen an ' + esc(b.lentTo) + '</b><div class="muted small">seit ' + fmtDate(b.lentSince) + '</div></div><button class="btn small" data-act="return">Zurück</button></div>'
-      : '<form class="row" id="lend"><label class="sr-only" for="lendto">Verleihen an</label><input id="lendto" class="input grow" placeholder="Verleihen an …" maxlength="40"><button class="btn small" type="submit">Verleihen</button></form>') + '</div>';
+    // Reihe
+    const bsr = b.seriesId ? seriesById(b.seriesId) : null;
+    html += '<div class="card" style="padding:14px 16px">';
+    if (bsr) {
+      html += '<div class="row"><div class="grow"><div class="muted small" style="font-weight:700">Reihe</div><a href="#/reihe/' + esc(bsr.id) + '" style="font-weight:700">' + esc(bsr.name) + '</a></div>' +
+        '<label class="field" style="width:96px">Band<input class="input" id="vol" type="number" inputmode="decimal" step="0.5" min="0" value="' + (b.volume != null ? b.volume : '') + '"></label></div>' +
+        '<button class="linkbtn small" data-act="unseries" style="padding:0;min-height:36px">aus der Reihe entfernen</button>';
+    } else if (b.seriesHint) {
+      html += '<p style="margin:0 0 10px">Gehört zur Reihe <b>„' + esc(b.seriesHint.name) + '“</b>, Band ' + fmtVol(b.seriesHint.volume) + '?</p>' +
+        '<div class="row"><button class="btn small" data-act="takehint">Übernehmen</button><button class="btn small ghost" data-act="nohint">Nein</button></div>';
+    } else {
+      html += '<form class="row" id="serform" style="align-items:flex-end"><label class="field grow">Reihe<input class="input" name="sname" list="serlist" placeholder="keine (Einzelband)" autocomplete="off"></label>' +
+        '<label class="field" style="width:80px">Band<input class="input" name="svol" type="number" inputmode="decimal" step="0.5" min="0"></label>' +
+        '<button class="btn small" type="submit" style="margin-bottom:5px">OK</button></form>' +
+        '<datalist id="serlist">' + S.series.map((x) => '<option value="' + esc(x.name) + '">').join('') + '</datalist>';
+    }
+    html += '</div>';
 
     // Standort
     const fachOpts = (sh) => { let o = '<option value="0">ohne Fach</option>'; for (let i = 1; i <= ((sh && sh.fachCount) || 0); i++) o += '<option value="' + i + '"' + (b.fach === i ? ' selected' : '') + '>Fach ' + i + '</option>'; return o; };
@@ -624,6 +707,7 @@
       '<label class="field">Untertitel<input class="input" name="subtitle" value="' + esc(b.subtitle) + '"></label>' +
       '<label class="field">Autor(en), mit Komma getrennt<input class="input" name="authors" value="' + esc(authorStr(b)) + '"></label>' +
       '<div class="row"><label class="field grow">Verlag<input class="input" name="publisher" value="' + esc(b.publisher) + '"></label><label class="field" style="width:96px">Jahr<input class="input" name="year" inputmode="numeric" value="' + esc(b.year) + '"></label></div>' +
+      '<label class="field">Seiten<input class="input" name="pages" type="number" inputmode="numeric" min="1" max="20000" value="' + esc(b.pages || '') + '"></label>' +
       '<label class="field">ISBN<input class="input" name="isbn" inputmode="numeric" value="' + esc(b.isbn) + '"></label>' +
       '<label class="field">Cover-Adresse (URL)<input class="input" name="cover" value="' + esc(/^data:/.test(b.cover) ? '' : b.cover) + '" placeholder="' + (/^data:/.test(b.cover) ? 'eigenes Foto gespeichert' : 'https://…') + '"></label>' +
       '<button class="btn block" type="submit">Daten speichern</button>' +
@@ -638,11 +722,14 @@
     hookCovers();
 
     const upd = async (patch, rerender) => { Object.assign(b, patch); await saveBook(b); if (rerender !== false) viewBook(id); };
-    on('[data-status]', 'click', (e) => upd({ status: e.currentTarget.dataset.status }));
+    on('[data-status]', 'click', (e) => {
+      const st = e.currentTarget.dataset.status;
+      const patch = { status: st };
+      if (st === 'gelesen' && !b.finishedAt) patch.finishedAt = todayIso();
+      upd(patch);
+    });
+    on('#finished', 'change', (e) => upd({ finishedAt: e.currentTarget.value || '' }, false));
     on('[data-rate]', 'click', (e) => { const r = +e.currentTarget.dataset.rate; upd({ rating: b.rating === r ? 0 : r }); });
-    on('[data-act="return"]', 'click', () => upd({ lentTo: '', lentSince: '' }));
-    const lend = qs('#lend');
-    if (lend) lend.addEventListener('submit', (e) => { e.preventDefault(); const v = qs('#lendto').value.trim(); if (v) upd({ lentTo: v, lentSince: now() }); });
     on('#mv-shelf', 'change', (e) => { const sid = e.currentTarget.value; upd({ shelfId: sid, fach: 0, pos: sid ? nextPos(sid, 0) : null }); });
     on('#mv-fach', 'change', (e) => { const f = +e.currentTarget.value; upd({ fach: f, pos: b.shelfId ? nextPos(b.shelfId, f) : null }); });
     on('#mv-pos', 'change', (e) => upd({ pos: parseInt(e.currentTarget.value, 10) || null }, false));
@@ -659,9 +746,24 @@
         title, subtitle: String(fd.get('subtitle')).trim(),
         authors: String(fd.get('authors')).split(',').map((x) => x.trim()).filter(Boolean),
         publisher: String(fd.get('publisher')).trim(), year: String(fd.get('year')).trim(),
+        pages: parseInt(fd.get('pages'), 10) || null,
         isbn: isbn || '', cover: String(fd.get('cover')).trim() || (/^data:/.test(b.cover) ? b.cover : ''), needsReview: !title
       });
       toast('Gespeichert');
+    });
+    on('#vol', 'change', (e) => { const v = parseFloat(String(e.currentTarget.value).replace(',', '.')); upd({ volume: isNaN(v) ? null : v }, false); });
+    on('[data-act="unseries"]', 'click', () => upd({ seriesId: null, volume: null, seriesHintDone: true }));
+    on('[data-act="takehint"]', 'click', async () => { await assignSeries(b, b.seriesHint.name, b.seriesHint.volume); toast('Zur Reihe hinzugefügt'); viewBook(id); });
+    on('[data-act="nohint"]', 'click', () => upd({ seriesHint: null, seriesHintDone: true }));
+    const sf = qs('#serform');
+    if (sf) sf.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = sf.sname.value.trim();
+      if (!name) return;
+      const v = parseFloat(String(sf.svol.value).replace(',', '.'));
+      await assignSeries(b, name, isNaN(v) ? null : v);
+      toast('Zur Reihe hinzugefügt');
+      viewBook(id);
     });
     on('#coverfile', 'change', async (e) => {
       const f = e.currentTarget.files && e.currentTarget.files[0];
@@ -980,7 +1082,7 @@
 
   // ---------- Weitere Ansichten ----------
   function viewSearch() {
-    setTheme('leseecke'); setTab('suche');
+    setTheme('leseecke'); setTab('home');
     const st = viewSearch.q || '';
     $app.innerHTML = head({ title: 'Suchen' }) +
       '<label class="search">' + ICON.search + '<input id="q" type="search" placeholder="Titel, Autor, ISBN oder Notiz" aria-label="Bücher durchsuchen" value="' + esc(st) + '" autocomplete="off"></label>' +
@@ -992,7 +1094,7 @@
       if (!q) { box.innerHTML = '<p class="muted">' + S.books.length + ' Bücher im Bestand.</p><a class="btn ghost block" href="#/scan/finden">Barcode scannen: „Habe ich das schon?“</a>'; return; }
       const isbn = L.normalizeIsbn(q);
       const hits = S.books.filter((b) => (isbn && b.isbn === isbn) ||
-        [b.title, b.subtitle, authorStr(b), b.isbn, b.notes, b.publisher].join(' ').toLowerCase().includes(q));
+        [b.title, b.subtitle, authorStr(b), b.isbn, b.notes, b.publisher, b.seriesId && seriesById(b.seriesId) ? seriesById(b.seriesId).name : ''].join(' ').toLowerCase().includes(q));
       box.innerHTML = hits.length ? '<ul class="books">' + hits.slice(0, 100).map((b) => bookRow(b, { showShelf: true })).join('') + '</ul>'
         : '<p class="empty">Nicht im Bestand.</p>';
       hookCovers(); hookSwipe();
@@ -1002,13 +1104,218 @@
     if (!st) setTimeout(() => qs('#q') && qs('#q').focus(), 50);
   }
 
-  function viewLent() {
-    setTheme('leseecke'); setTab('verliehen');
-    const list = S.books.filter((b) => b.lentTo).sort((a, b) => (a.lentSince || '').localeCompare(b.lentSince || ''));
-    $app.innerHTML = head({ title: 'Verliehen' }) + (list.length
-      ? '<ul class="books">' + list.map((b) => bookRow(b, { showShelf: true }).replace('<span class="pill warn">verliehen</span>', '<span class="pill warn">an ' + esc(b.lentTo) + ' seit ' + fmtDate(b.lentSince) + '</span>')).join('') + '</ul>'
-      : '<p class="empty">Gerade ist nichts verliehen.</p>');
+  // ---------- Reihen ----------
+  function seriesBar(info) {
+    if (!info.total) return '';
+    const pct = (n) => (n / info.total * 100).toFixed(1) + '%';
+    return '<div aria-hidden="true" style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--surface2);margin-top:8px">' +
+      '<div style="width:' + pct(info.read) + ';background:var(--accent)"></div>' +
+      '<div style="width:' + pct(info.owned - info.read) + ';background:var(--accent);opacity:.35"></div></div>';
+  }
+
+  const VOL_ICON = {
+    read: '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#2E7D32" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6"></path></svg>',
+    reading: '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="#B26A00" stroke-width="3"></circle><path d="M12 3a9 9 0 0 1 0 18z" fill="#B26A00"></path></svg>',
+    owned: '<svg aria-hidden="true" width="8" height="8" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="currentColor"></circle></svg>'
+  };
+  const VOL_TEXT = { read: 'gelesen', reading: 'angefangen', owned: 'vorhanden, ungelesen', missing: 'noch nicht gekauft' };
+
+  function viewSeriesList() {
+    setTheme('leseecke'); setTab('reihen');
+    const list = S.series.map((sr) => ({ sr, info: seriesInfo(sr) }))
+      .sort((a, b) => (a.sr.author || '\uffff').localeCompare(b.sr.author || '\uffff', 'de') || a.sr.name.localeCompare(b.sr.name, 'de'));
+    let html = head({ title: 'Reihen', sub: list.length + (list.length === 1 ? ' Reihe' : ' Reihen') });
+    const hints = {};
+    S.books.filter((b) => b.seriesHint && !b.seriesId).forEach((b) => { const k = b.seriesHint.name; (hints[k] = hints[k] || []).push(b); });
+    const hintNames = Object.keys(hints).sort((a, b) => a.localeCompare(b, 'de'));
+    if (hintNames.length) {
+      html += '<section class="card" style="padding:12px 16px;margin-bottom:14px;background:var(--warn-bg)"><b>Erkannte Reihen bestätigen</b><div class="stack" style="margin-top:8px;gap:10px">' +
+        hintNames.map((n, i) => '<div class="row" style="flex-wrap:wrap"><div class="grow" style="min-width:160px"><b>' + esc(n) + '</b><div class="muted small">' + hints[n].length + (hints[n].length === 1 ? ' Buch' : ' Bücher') + ' · Band ' +
+          hints[n].map((b) => fmtVol(b.seriesHint.volume)).sort((a, b) => parseFloat(a) - parseFloat(b)).join(', ') + '</div></div>' +
+          '<button class="btn small" data-take="' + i + '">Übernehmen</button><button class="btn small ghost" data-skip="' + i + '">Ignorieren</button></div>').join('') + '</div></section>';
+    }
+    html += '<div class="vol-legend" aria-hidden="true">' +
+      '<span class="vol read">' + VOL_ICON.read + ' gelesen</span><span class="vol reading">' + VOL_ICON.reading + ' angefangen</span>' +
+      '<span class="vol owned">' + VOL_ICON.owned + ' ungelesen</span><span class="vol missing">nicht gekauft</span></div>';
+    if (!list.length) html += '<p class="empty">Noch keine Reihen. Im Buch unter „Reihe“ zuordnen oder unten anlegen.</p>';
+    html += '<ol class="series-list">' + list.map(({ sr, info }) => {
+      const chips = info.rows.map((r) => {
+        const st = r.read ? 'read' : r.reading ? 'reading' : r.owned ? 'owned' : 'missing';
+        const label = 'B' + fmtVol(r.volume);
+        const aria = 'Band ' + fmtVol(r.volume) + ': ' + VOL_TEXT[st];
+        const inner = label + (VOL_ICON[st] || '');
+        if (r.owned) return '<a class="vol ' + st + '" href="#/buch/' + esc(r.books[0].id) + '" aria-label="' + aria + '">' + inner + '</a>';
+        const q = encodeURIComponent([sr.name, 'Band ' + fmtVol(r.volume), sr.author].filter(Boolean).join(' '));
+        return '<a class="vol missing" target="_blank" rel="noopener" href="https://www.google.com/search?q=' + q + '" aria-label="' + aria + ', im Web suchen">' + inner + '</a>';
+      }).join('');
+      return '<li class="card series-row"><a class="series-title" href="#/reihe/' + esc(sr.id) + '">' +
+        (sr.author ? '<span class="muted">' + esc(sr.author) + ' – </span>' : '') + '<b>' + esc(sr.name) + '</b>' +
+        ' <span class="muted small">(' + (info.totalKnown ? info.total : 'mind. ' + info.total) + ' ' + (info.total === 1 ? 'Band' : 'Bände') + ')</span></a>' +
+        '<div class="vols">' + chips + (info.noVolume.length ? '<span class="muted small">+ ' + info.noVolume.length + ' ohne Bandnr.</span>' : '') + '</div></li>';
+    }).join('') + '</ol>';
+    html += '<a class="btn ghost block" href="#/reihe/neu" style="margin-top:14px">+ Reihe anlegen</a>';
+    $app.innerHTML = html;
+    on('[data-take]', 'click', async (e) => {
+      const n = hintNames[+e.currentTarget.dataset.take];
+      for (const b of hints[n]) await assignSeries(b, n, b.seriesHint.volume);
+      toast('„' + n + '“ übernommen');
+      refresh();
+    });
+    on('[data-skip]', 'click', async (e) => {
+      const n = hintNames[+e.currentTarget.dataset.skip];
+      for (const b of hints[n]) { b.seriesHint = null; b.seriesHintDone = true; await saveBook(b); }
+      refresh();
+    });
+  }
+
+  function viewSeries(id) {
+    const sr = seriesById(id);
+    if (!sr) return notFound();
+    setTheme('leseecke'); setTab('home');
+    const info = seriesInfo(sr);
+    let html = head({ back: '#/reihen', backLabel: 'Reihen', title: sr.name, sub: sr.author || '' });
+    html += '<div class="stats" style="grid-template-columns:repeat(4,minmax(0,1fr))">' +
+      '<div class="stat"><b>' + (info.totalKnown ? info.total : info.total + '+') + '</b><span>Bände</span></div>' +
+      '<div class="stat"><b>' + info.read + '</b><span>gelesen</span></div>' +
+      '<div class="stat"><b>' + info.owned + '</b><span>gekauft</span></div>' +
+      '<div class="stat"><b>' + info.missing + '</b><span>fehlen</span></div></div>';
+    if (!info.totalKnown) html += '<p class="muted small" style="margin:8px 0 0">Gesamtzahl der Bände unbekannt. Unten unter „Reihe bearbeiten“ eintragen, dann zeigt die App auch fehlende Bände am Ende an.</p>';
+    html += seriesBar(info);
+    html += '<ul class="books" style="margin-top:12px">' + info.rows.map((r) => {
+      const b = r.books[0];
+      const label = 'Band ' + fmtVol(r.volume);
+      if (!r.owned) {
+        const q = encodeURIComponent([sr.name, label, sr.author].filter(Boolean).join(' '));
+        return '<li class="book" style="opacity:.85"><div class="cover" style="width:40px;height:58px" aria-hidden="true"><span class="ini" style="font-size:14px">' + fmtVol(r.volume) + '</span></div>' +
+          '<div class="grow"><div style="font-weight:700">' + label + '</div><div class="book-meta"><span class="pill warn">noch nicht gekauft</span></div></div>' +
+          '<a class="linkbtn small" target="_blank" rel="noopener" href="https://www.google.com/search?q=' + q + '">suchen</a></li>';
+      }
+      const pill = r.read ? '<span class="pill">gelesen</span>' : r.reading ? '<span class="pill">liest gerade</span>' : '<span class="pill">gekauft, ungelesen</span>';
+      return '<li><a class="book" href="#/buch/' + esc(b.id) + '">' + coverHtml(b).replace('class="cover"', 'class="cover" style="width:40px;height:58px"') +
+        '<div class="grow"><div class="muted small" style="font-weight:700">' + label + '</div><div style="font-weight:700">' + esc(b.title || 'ISBN ' + L.formatIsbn(b.isbn)) + '</div>' +
+        '<div class="book-meta">' + pill + ratingHtml(b.rating) + '<span class="muted small">' + esc(shelfLabel(shelfById(b.shelfId))) + '</span></div></div></a></li>';
+    }).join('') + '</ul>';
+    if (info.noVolume.length) {
+      html += '<p class="muted small" style="margin:14px 0 4px">Ohne Bandnummer (im Buch unter „Reihe“ eintragen):</p><ul class="books">' + info.noVolume.map((b) => bookRow(b)).join('') + '</ul>';
+    }
+    html += '<details class="card" style="margin-top:16px"><summary>Reihe bearbeiten</summary><form class="form" id="sredit" style="padding-bottom:16px">' +
+      '<label class="field">Name<input class="input" name="name" required value="' + esc(sr.name) + '"></label>' +
+      '<label class="field">Autor<input class="input" name="author" value="' + esc(sr.author || '') + '"></label>' +
+      '<label class="field">Anzahl Bände (leer = unbekannt)<input class="input" name="total" type="number" inputmode="numeric" min="1" max="200" value="' + (sr.total || '') + '"></label>' +
+      '<button class="btn block" type="submit">Speichern</button>' +
+      '<button class="btn danger block" type="button" data-act="delseries">Reihe löschen (Bücher bleiben erhalten)</button></form></details>';
+    $app.innerHTML = html;
+    hookCovers();
+    qs('#sredit').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = e.currentTarget;
+      sr.name = f.name.value.trim() || sr.name;
+      sr.author = f.author.value.trim();
+      sr.total = parseInt(f.total.value, 10) || null;
+      await saveSeries(sr);
+      toast('Gespeichert');
+      viewSeries(id);
+    });
+    on('[data-act="delseries"]', 'click', async () => {
+      if (!confirm('Reihe „' + sr.name + '“ löschen? Die Bücher bleiben erhalten.')) return;
+      for (const b of S.books.filter((x) => x.seriesId === id)) { b.seriesId = null; b.volume = null; b.seriesHintDone = true; await saveBook(b); }
+      await DB.del('series', id);
+      S.series = S.series.filter((x) => x.id !== id);
+      location.hash = '#/reihen';
+    });
+  }
+
+  function viewSeriesNew() {
+    setTheme('leseecke'); setTab('home');
+    $app.innerHTML = head({ back: '#/reihen', backLabel: 'Reihen', title: 'Neue Reihe' }) +
+      '<form class="form card" id="srnew" style="padding:16px">' +
+      '<label class="field">Name<input class="input" name="name" required placeholder="z. B. Dreams in Rome"></label>' +
+      '<label class="field">Autor<input class="input" name="author"></label>' +
+      '<label class="field">Anzahl Bände (leer = unbekannt)<input class="input" name="total" type="number" inputmode="numeric" min="1" max="200"></label>' +
+      '<button class="btn block" type="submit">Anlegen</button></form>' +
+      '<p class="muted small">Bücher ordnest du danach in der Buchansicht unter „Reihe“ zu. Beim Scannen schlägt die App die Reihe oft selbst vor.</p>';
+    qs('#srnew').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = e.currentTarget;
+      const name = f.name.value.trim();
+      if (!name) return;
+      if (seriesByName(name)) { toast('Diese Reihe gibt es schon'); return; }
+      const sr = await saveSeries({ id: uid() + uid(), name, author: f.author.value.trim(), total: parseInt(f.total.value, 10) || null, createdAt: now() });
+      location.hash = '#/reihe/' + sr.id;
+    });
+  }
+
+  // ---------- Lesestatistik ----------
+  const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+  const monthLabel = (ym) => MONTHS[+ym.slice(5, 7) - 1] + ' ' + ym.slice(0, 4);
+  /** Gelesene Bücher eines Monats (ym = "2026-11") oder Jahres (ym = "2026"). */
+  const readIn = (ym) => S.books.filter((b) => b.status === 'gelesen' && b.finishedAt && b.finishedAt.indexOf(ym) === 0);
+
+  function viewStats(yearArg) {
+    setTheme('leseecke'); setTab('home');
+    const done = S.books.filter((b) => b.status === 'gelesen' && b.finishedAt);
+    const undated = S.books.filter((b) => b.status === 'gelesen' && !b.finishedAt);
+    const years = Array.from(new Set(done.map((b) => b.finishedAt.slice(0, 4)).concat([todayIso().slice(0, 4)]))).sort().reverse();
+    const year = years.includes(yearArg) ? yearArg : years[0];
+    const yBooks = readIn(year);
+    const yPages = yBooks.reduce((n, b) => n + (b.pages || 0), 0);
+    const yNoPages = yBooks.filter((b) => !b.pages).length;
+    const months = MONTHS.map((_, i) => {
+      const ym = year + '-' + String(i + 1).padStart(2, '0');
+      const list = readIn(ym).sort((a, b) => a.finishedAt.localeCompare(b.finishedAt));
+      return { ym, list, pages: list.reduce((n, b) => n + (b.pages || 0), 0) };
+    });
+    const maxPages = Math.max(1, ...months.map((m) => m.pages));
+    const nowYm = todayIso().slice(0, 7);
+
+    let html = head({ back: '#/', backLabel: 'Bibliothek', title: 'Lesestatistik' });
+    html += '<div class="chips" role="group" aria-label="Jahr">' + years.map((y) => '<a class="chip" style="display:inline-flex;align-items:center;text-decoration:none" href="#/statistik/' + y + '" aria-pressed="' + (y === year) + '">' + y + '</a>').join('') + '</div>';
+    html += '<div class="stats"><div class="stat"><b>' + yBooks.length + '</b><span>Bücher</span></div><div class="stat"><b>' + fmtNum(yPages) + '</b><span>Seiten</span></div><div class="stat"><b>' + (yBooks.length - yNoPages ? fmtNum(Math.round(yPages / (yBooks.length - yNoPages))) : '–') + '</b><span>Ø Seiten</span></div></div>';
+    if (yNoPages) html += '<p class="muted small" style="margin:8px 0 0">Bei ' + yNoPages + (yNoPages === 1 ? ' Buch fehlt' : ' Büchern fehlt') + ' die Seitenzahl. Im Buch unter „Daten bearbeiten“ nachtragen.</p>';
+    html += '<div class="stack" style="margin-top:16px">';
+    months.slice().reverse().forEach((m) => {
+      if (m.ym > nowYm) return;
+      if (!m.list.length) { html += '<div class="row muted small" style="padding:2px 16px"><span class="grow">' + MONTHS[+m.ym.slice(5) - 1] + '</span><span>–</span></div>'; return; }
+      const w = Math.round(m.pages / maxPages * 100);
+      html += '<section class="card" style="padding:12px 16px"><div class="row"><b class="grow" style="font-family:var(--font-title)">' + MONTHS[+m.ym.slice(5) - 1] + '</b>' +
+        '<span class="muted small">' + m.list.length + (m.list.length === 1 ? ' Buch' : ' Bücher') + ' · ' + fmtNum(m.pages) + ' Seiten</span></div>' +
+        '<div aria-hidden="true" style="height:6px;border-radius:3px;background:var(--surface2);margin:8px 0 ' + (m.list.length ? '6px' : '0') + '"><div style="height:100%;width:' + w + '%;border-radius:3px;background:var(--accent)"></div></div>' +
+        (m.list.length ? '<ul class="books">' + m.list.map((b) => '<li><a class="book" href="#/buch/' + esc(b.id) + '" style="padding:8px 0">' + coverHtml(b).replace('class="cover"', 'class="cover" style="width:36px;height:52px"') +
+          '<div class="grow"><div style="font-weight:700">' + esc(b.title || ('ISBN ' + L.formatIsbn(b.isbn))) + '</div><div class="muted small">' + esc(authorStr(b) || '–') + ' · ' + (b.pages ? fmtNum(b.pages) + ' S.' : 'Seiten fehlen') + ' · ' + fmtDate(b.finishedAt) + '</div></div>' + ratingHtml(b.rating) + '</a></li>').join('') + '</ul>' : '') +
+        '</section>';
+    });
+    html += '</div>';
+    if (undated.length) {
+      html += '<section class="card" style="padding:12px 16px;margin-top:16px"><b>Gelesen, ohne Datum (' + undated.length + ')</b><p class="muted small" style="margin:4px 0 8px">Im Buch „Gelesen am“ eintragen, dann zählt es im richtigen Monat.</p><ul class="books">' +
+        undated.map((b) => '<li><a class="book" href="#/buch/' + esc(b.id) + '" style="padding:8px 0"><div class="grow"><div style="font-weight:700">' + esc(b.title || b.isbn) + '</div><div class="muted small">' + esc(authorStr(b) || '–') + '</div></div>' + ICON.chevron + '</a></li>').join('') + '</ul></section>';
+    }
+    $app.innerHTML = html;
+    hookCovers();
+  }
+
+  /** Alle Bücher über alle Regale, mit Statusfilter und Sortierung. */
+  function viewBooks(filter) {
+    setTheme('leseecke'); setTab('buecher');
+    const FILTERS = [['alle', 'Alle'], ['ungelesen', 'Ungelesen'], ['liest', 'Liest gerade'], ['gelesen', 'Gelesen'], ['abgebrochen', 'Abgebrochen']];
+    const f = FILTERS.some(([k]) => k === filter) ? filter : 'alle';
+    const sort = viewBooks.sort || 'titel';
+    const sorters = {
+      titel: (a, b) => (a.title || '').localeCompare(b.title || '', 'de'),
+      autor: (a, b) => authorStr(a).localeCompare(authorStr(b), 'de') || (a.title || '').localeCompare(b.title || '', 'de'),
+      regal: (a, b) => shelfLabel(shelfById(a.shelfId)).localeCompare(shelfLabel(shelfById(b.shelfId)), 'de', { numeric: true }) || (a.fach || 0) - (b.fach || 0) || (a.pos || 1e9) - (b.pos || 1e9),
+      neu: (a, b) => (b.addedAt || '').localeCompare(a.addedAt || '')
+    };
+    const list = S.books.filter((b) => f === 'alle' || b.status === f).sort(sorters[sort] || sorters.titel);
+    const count = (k) => k === 'alle' ? S.books.length : S.books.filter((b) => b.status === k).length;
+    const title = { alle: 'Alle Bücher', ungelesen: 'Ungelesen', liest: 'Liest gerade', gelesen: 'Gelesen', abgebrochen: 'Abgebrochen' }[f];
+    let html = head({ title, sub: list.length + (list.length === 1 ? ' Buch' : ' Bücher') });
+    html += '<div class="chips" role="group" aria-label="Lesestatus">' + FILTERS.map(([k, l]) => '<a class="chip" style="display:inline-flex;align-items:center;text-decoration:none" href="#/buecher/' + k + '" aria-pressed="' + (k === f) + '">' + l + ' <span style="opacity:.7;margin-left:6px">' + count(k) + '</span></a>').join('') + '</div>';
+    html += '<div class="row" style="margin:12px 0 6px;justify-content:flex-end"><label class="sr-only" for="bsort">Sortierung</label><select id="bsort" class="input" style="width:auto;min-height:36px;padding:4px 10px;font-size:14px">' +
+      [['titel', 'Titel'], ['autor', 'Autor'], ['regal', 'Regal'], ['neu', 'Zuletzt erfasst']].map(([v, l]) => '<option value="' + v + '"' + (sort === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select></div>';
+    html += list.length ? '<ul class="books">' + list.map((b) => bookRow(b, { showShelf: true })).join('') + '</ul>' : '<p class="empty">Keine Bücher mit diesem Status.</p>';
+    $app.innerHTML = html;
     hookCovers(); hookSwipe();
+    on('#bsort', 'change', (e) => { viewBooks.sort = e.currentTarget.value; refresh(); });
   }
 
   function viewReview() {
@@ -1029,6 +1336,7 @@
     try { persisted = navigator.storage && navigator.storage.persisted ? await navigator.storage.persisted() : null; } catch (e) { persisted = null; }
     const review = S.books.filter((b) => b.needsReview || b.needsLookup).length;
     const noCover = S.books.filter((b) => !b.cover && b.isbn).length;
+    const noSeriesCheck = S.books.filter((b) => b.isbn && !b.seriesId && !b.seriesHint && !b.seriesHintDone && !b.seriesChecked).length;
     $app.innerHTML = head({ title: 'Mehr' }) +
       '<div class="stack">' +
       '<section class="card" style="padding:16px"><h2 style="font-family:var(--font-title);font-size:18px">Sicherung</h2>' +
@@ -1046,6 +1354,9 @@
       '<a class="card row" href="#/nacharbeiten" style="padding:14px 16px;text-decoration:none;color:var(--text)"><span class="grow">Nacharbeiten</span><span class="pill' + (review ? ' warn' : '') + '">' + review + '</span>' + ICON.chevron + '</a>' +
       '<a class="card row" href="#/buch/neu" style="padding:14px 16px;text-decoration:none;color:var(--text)"><span class="grow">Buch ohne ISBN hinzufügen</span>' + ICON.chevron + '</a>' +
       '<a class="card row" href="#/etiketten" style="padding:14px 16px;text-decoration:none;color:var(--text)"><span class="grow">Regal-Etiketten (QR) drucken</span>' + ICON.chevron + '</a>' +
+      '<a class="card row" href="#/statistik" style="padding:14px 16px;text-decoration:none;color:var(--text)"><span class="grow">Lesestatistik</span>' + ICON.chevron + '</a>' +
+      '<a class="card row" href="#/reihen" style="padding:14px 16px;text-decoration:none;color:var(--text)"><span class="grow">Reihen</span>' + ICON.chevron + '</a>' +
+      (noSeriesCheck ? '<button class="btn ghost block" data-act="detectseries">Reihen erkennen für vorhandene Bücher (' + noSeriesCheck + ')</button>' : '') +
       '<a class="card row" href="#/diagnose" style="padding:14px 16px;text-decoration:none;color:var(--text)"><span class="grow">Datenquellen testen</span>' + ICON.chevron + '</a>' +
       '<p class="muted small">Speicher dauerhaft: ' + (persisted === null ? 'unbekannt' : persisted ? 'ja' : 'nein') + ' · Version ' + APP_VERSION + ' · ' + S.books.length + ' Einträge</p></div>';
     on('[data-act="export"]', 'click', exportData);
@@ -1054,6 +1365,28 @@
       S.googleKey = qs('#gk').value.trim();
       await DB.setMeta('googleKey', S.googleKey);
       toast(S.googleKey ? 'Schlüssel gespeichert – jetzt „Datenquellen testen“' : 'Schlüssel entfernt');
+    });
+    on('[data-act="detectseries"]', 'click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      const list = S.books.filter((b) => b.isbn && !b.seriesId && !b.seriesHint && !b.seriesHintDone && !b.seriesChecked);
+      let found = 0, done = 0;
+      for (const b of list) {
+        btn.textContent = 'Prüfe ' + (++done) + ' von ' + list.length + ' …';
+        const m = await L.lookupSeries(b.isbn);
+        if (m === null) continue;   // nicht erreichbar: später erneut
+        b.seriesChecked = true;
+        if (!b.pages && m.pages) b.pages = m.pages;
+        const hint = m.series[0];
+        if (hint) {
+          found++;
+          const sr = seriesByName(hint.name);
+          if (sr) { b.seriesId = sr.id; b.volume = hint.volume; } else b.seriesHint = hint;
+        }
+        await saveBook(b);
+      }
+      toast(found ? found + ' Bücher gehören zu einer Reihe. Vorschläge im jeweiligen Buch bestätigen.' : 'Keine Reihen gefunden', 4500);
+      if (location.hash === '#/mehr') viewMore();
     });
     on('[data-act="covers"]', 'click', () => {
       const list = S.books.filter((b) => !b.cover && b.isbn);
@@ -1138,7 +1471,7 @@
   }
 
   async function exportData() {
-    const data = { app: 'bibliothek', version: 1, exportedAt: now(), shelves: S.shelves, books: S.books };
+    const data = { app: 'bibliothek', version: 2, exportedAt: now(), shelves: S.shelves, books: S.books, series: S.series };
     const name = 'bibliothek-' + new Date().toISOString().slice(0, 10) + '.json';
     const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
     let done = false;
@@ -1165,7 +1498,8 @@
     try { data = JSON.parse(await file.text()); } catch (err) { toast('Datei ist keine gültige Sicherung'); return; }
     if (!data || data.app !== 'bibliothek' || !Array.isArray(data.books) || !Array.isArray(data.shelves)) { toast('Datei ist keine Bibliothek-Sicherung'); return; }
     if (!confirm('Aktuellen Bestand (' + S.books.length + ' Bücher) durch die Sicherung vom ' + fmtDate(data.exportedAt) + ' (' + data.books.length + ' Bücher) ersetzen?')) return;
-    await DB.clear('books'); await DB.clear('shelves');
+    await DB.clear('books'); await DB.clear('shelves'); await DB.clear('series');
+    if (Array.isArray(data.series)) await DB.putMany('series', data.series);
     await DB.putMany('shelves', data.shelves);
     await DB.putMany('books', data.books);
     await DB.setMeta('booksSinceBackup', 0);
@@ -1188,7 +1522,12 @@
     if (p[0] === 'buch' && p[1]) return viewBook(p[1]);
     if (p[0] === 'scan') return viewScan(p[1] === 'finden' ? 'finden' : 'erfassen', p[1] === 'regal' ? p[2] : '');
     if (p[0] === 'suche') return viewSearch();
-    if (p[0] === 'verliehen') return viewLent();
+    if (p[0] === 'buecher') return viewBooks(p[1] || 'alle');
+    if (p[0] === 'statistik') return viewStats(p[1] || '');
+    if (p[0] === 'reihen') return viewSeriesList();
+    if (p[0] === 'reihe' && p[1] === 'neu') return viewSeriesNew();
+    if (p[0] === 'reihe' && p[1]) return viewSeries(p[1]);
+    if (p[0] === 'verliehen') { location.replace('#/buecher/alle'); return; }
     if (p[0] === 'nacharbeiten') return viewReview();
     if (p[0] === 'mehr') return viewMore();
     if (p[0] === 'etiketten') return viewLabels();
